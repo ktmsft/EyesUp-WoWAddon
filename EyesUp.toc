@@ -13,6 +13,8 @@
 # about it three zones later.
 #
 #   Constants   enums, colors, defaults. Depends on nobody.
+#   Species     GENERATED: every gathering node in the game, its expansion, and
+#               every name it can wear. Data only; depends on nobody but Constants.
 #   Database    what we remember, how far, which way, and the filter gate
 #   Seed        SOURCE: somebody else's map (GatherMate2_Data), if it's installed.
 #               Needs Data. Optional at runtime; we bundle none of it.
@@ -30,6 +32,7 @@
 #               nearest node for the nav test), so it loads after it.
 #   Core        wakes everything up. Assumes the rest exists, so it goes last.
 Constants.lua
+Species.lua
 Database.lua
 Seed.lua
 Live.lua

@@ -90,20 +90,32 @@ local function commitPending(id, name)
     pending = nil
     if not p then return end
 
-    -- WHO is this node? Ask GatherMate before falling back to the loot.
+    -- WHO is this node?
     --
-    -- The loot tells us what the node DROPPED ("Copper Ore"). GatherMate tells us
-    -- what the node IS ("Copper Vein"), which is the thing you actually see in the
-    -- world and the thing you'd want to filter on. When both are available the
-    -- node's identity is the species, and the item is demoted to what it's really
-    -- for -- the picture. See Seed.lua, "Identity: the node, not the item".
+    -- The loot tells us what it DROPPED ("Copper Ore"). We want to know what it
+    -- IS ("Copper Vein") -- the thing you see in the world, and the thing you'd
+    -- want to filter on.
     --
-    -- Without GatherMate installed this resolves to nil and we behave exactly as
-    -- we always did: the item id IS the identity.
-    local gmID, gmName = NS.Seed.IdentifyNear(p.mapID, p.x, p.y, p.type)
+    -- The species was resolved at CAST time (beginPending), because that's the
+    -- only moment we can: you were soft-targeting the node, so the game told us
+    -- its name, and Species.lua turns that name -- variant and all -- into one
+    -- species. By loot time the node has despawned and the moment is gone.
+    --
+    -- ONLY A SPECIES ID EVER BECOMES A NODE'S IDENTITY. Never an item id. That is
+    -- the rule that fixes the duplicate: the filter list used to hold both, and
+    -- since a herb's item shares its node's name, "Tranquility Bloom" appeared
+    -- twice with two independent checkboxes. If we can't name the species we
+    -- record the node type-only -- which is a thing this addon has always been
+    -- able to do -- rather than reaching for the item id and poisoning the list.
+    local sID, sName = p.species, p.speciesName
 
-    local node, added = Data.AddNode(p.mapID, p.x, p.y, p.type,
-        gmID or id, gmName or name)
+    -- Fallback: GatherMate had a node at this exact spot, so we know what species
+    -- stands here even if soft-targeting was off.
+    if not sID then
+        sID, sName = NS.Seed.IdentifyNear(p.mapID, p.x, p.y, p.type)
+    end
+
+    local node, added = Data.AddNode(p.mapID, p.x, p.y, p.type, sID, sName)
 
     -- The item, kept for its art. Never for its identity.
     if id then node.item = id end
@@ -111,9 +123,9 @@ local function commitPending(id, name)
     -- Now we know what this SPECIES looks like -- so every other one of them,
     -- including live soft-target nodes that have never been in your bags, can
     -- stop showing a generic leaf and show the real thing.
-    if gmID and id and NS.db.speciesItem then
+    if sID and id and NS.db.speciesItem then
         NS.db.speciesItem[p.type] = NS.db.speciesItem[p.type] or {}
-        NS.db.speciesItem[p.type][gmID] = id
+        NS.db.speciesItem[p.type][sID] = id
     end
 
     -- And GatherMate's copy of this node steps aside for good -- ours is better,
@@ -216,10 +228,15 @@ end
 -- northwest of where they really are is worse than useless.
 local function beginPending(nodeType)
     -- Whatever you're soft-targeting at the instant you start the cast IS the
-    -- thing you're gathering, and the spell just told us what kind it is. That's
-    -- how the classifier learns species GatherMate has never heard of -- and it
-    -- has to happen HERE, at cast time, because the node vanishes on completion.
+    -- thing you're gathering, and the spell just told us what kind it is. Both of
+    -- the things we do with that have to happen HERE, at cast time -- by the time
+    -- the loot arrives the node has despawned and the game has forgotten it:
+    --
+    --   1. LEARN it, if Species.lua has never heard of this name.
+    --   2. RESOLVE the species, so the node we're about to write down is a
+    --      "Copper Vein" and not a "Copper Ore".
     NS.Live.Learn(nodeType)
+    local sType, sID, sName = NS.Live.CurrentSpecies()
 
     if not (NS.db and NS.db.recordGathers) then return end
     local mapID, x, y = Data.GetPlayerPosition()
@@ -236,7 +253,14 @@ local function beginPending(nodeType)
 
     pendingSeq = pendingSeq + 1
     local seq = pendingSeq
-    pending = { type = nodeType, mapID = mapID, x = x, y = y, t = GetTime(), seq = seq }
+    pending = {
+        type = nodeType, mapID = mapID, x = x, y = y, t = GetTime(), seq = seq,
+        -- Only trust the soft-target's species if it agrees with the spell about
+        -- what KIND of thing this is. Cast Mining while standing next to a herb
+        -- and we'd otherwise file the ore under the herb's name.
+        species     = (sType == nodeType) and sID or nil,
+        speciesName = (sType == nodeType) and sName or nil,
+    }
 
     -- The fallback, and it's deliberate: if no loot ever resolves -- an
     -- interrupted cast, an empty node, a client that never opens a loot window --
@@ -309,14 +333,14 @@ ev:SetScript("OnEvent", function(_, event, ...)
         -- keys, so putting it there would hand every existing character the
         -- "already migrated" stamp and this would never run.
         -- ---------------------------------------------------------------------
-        if EyesUpDB.identityVersion ~= 2 then
+        if EyesUpDB.identityVersion ~= 3 then
             local had = false
             for _, t in ipairs(NS.NodeTypeOrder) do
                 if next(EyesUpDB.knownNodes[t] or {}) then had = true end
                 wipe(EyesUpDB.knownNodes[t])
                 wipe(EyesUpDB.nodeFilter[t])
             end
-            EyesUpDB.identityVersion = 2
+            EyesUpDB.identityVersion = 3
             NS.pruned = had
         end
 

@@ -146,53 +146,32 @@ end
 -- heard of "Stool". That single lookup gives us the type AND an identity that
 -- matches what the seed and the database already use, for free.
 -- ---------------------------------------------------------------------------
-local PROFESSIONS = {
-    ["Herb Gathering"] = NS.NodeType.HERB,
-    ["Mining"]         = NS.NodeType.MINE,
-    ["Logging"]        = NS.NodeType.LUMBER,
-    ["Fishing"]        = NS.NodeType.FISHING,
-    ["Treasure"]       = NS.NodeType.TREASURE,
-}
-
-local classCache = {}       -- name -> { type, id } or false ("definitely not a node")
-
+-- One table lookup, and it's ours.
+--
+-- This used to interrogate GatherMate's species list, which meant an addon that
+-- couldn't tell a herb from a stool unless you'd installed a second addon. It's
+-- a flat generated table now (Species.lua) -- every gathering node in the game,
+-- every name it can wear -- so the classifier depends on nothing, works on a
+-- clean install, and knows "Lightfused Tranquility Bloom" is a Tranquility Bloom.
 local function classify(name)
     if not name then return nil end
 
-    local hit = classCache[name]
-    if hit ~= nil then
-        if hit == false then return nil end
-        return hit.type, hit.id
-    end
+    local s = NS.SpeciesByName[name]
+    if s then return s.type, s.id end
 
-    local gm = _G.GatherMate2
-    local ids = gm and gm.nodeIDs
-    if ids then
-        for prof, nodeType in pairs(PROFESSIONS) do
-            local t = ids[prof]
-            local id = t and t[name]
-            if id then
-                classCache[name] = { type = nodeType, id = id }
-                return nodeType, id
-            end
-        end
-    end
-
-    -- Learned the hard way: you cast Mining at it, so it's a mine, whatever
-    -- GatherMate thinks. Fills in species GatherMate has never heard of.
+    -- Learned the hard way: you cast Mining at it, so it's a mine, whatever the
+    -- table says. Covers anything a patch adds before Species.lua is regenerated.
     local learned = NS.db and NS.db.objectType and NS.db.objectType[name]
-    if learned then
-        classCache[name] = { type = learned, id = nil }
-        return learned, nil
-    end
+    if learned then return learned, nil end
 
-    classCache[name] = false      -- a stool. Remember that, and stop asking.
-    return nil
+    return nil                    -- a stool. Not a node. Default to ignoring.
 end
+
+Live.Classify = classify
 
 -- Called from Core when you gather: whatever you were soft-targeting at the
 -- moment of the cast IS the thing you just gathered, and the spell says what kind
--- it was. That's how a species GatherMate doesn't know about gets classified.
+-- it was. That's how a species the table doesn't know yet gets classified.
 function Live.Learn(nodeType)
     local name = Live.CurrentName()
     if not (name and nodeType and NS.db) then return end
@@ -200,7 +179,18 @@ function Live.Learn(nodeType)
 
     NS.db.objectType = NS.db.objectType or {}
     NS.db.objectType[name] = nodeType
-    classCache[name] = nil                     -- re-classify next time we see it
+end
+
+-- What species is the thing you're soft-targeting right now? (type, id, name)
+-- Core asks this at cast time -- that's the moment we KNOW which node you're
+-- gathering, and it's what stops item ids ever entering the filter list again.
+function Live.CurrentSpecies()
+    local name = Live.CurrentName()
+    if not name then return nil end
+    local nodeType, id = classify(name)
+    if not (nodeType and id) then return nil end
+    local s = NS.Species[nodeType] and NS.Species[nodeType][id]
+    return nodeType, id, s and s.name or name
 end
 
 -- ---------------------------------------------------------------------------
@@ -264,12 +254,20 @@ end
 -- limitation of this code, it's what the API gives.
 -- ---------------------------------------------------------------------------
 function Live.ForEachNearby(mapID, px, py, fn)
-    local name, guid = Live.CurrentName()
-    if not name then return end
+    local worldName, guid = Live.CurrentName()
+    if not worldName then return end
 
-    local nodeType, id = classify(name)
+    local nodeType, id = classify(worldName)
     if not nodeType then return end                       -- a chair. Not our business.
     if not Data.IsVisible(nodeType, id) then return end   -- filters, at the source
+
+    -- The world calls it "Lightfused Tranquility Bloom". Everything else in this
+    -- addon -- the database, the seed data, the filter list -- calls it
+    -- "Tranquility Bloom", because they are the same plant. Collapse to the base
+    -- name HERE, or the position lookup below searches for a name nothing was ever
+    -- stored under and the cue can never point at anything.
+    local s = id and NS.Species[nodeType] and NS.Species[nodeType][id]
+    local name = (s and s.name) or worldName
 
     local node = nodeFor(guid, nodeType, id, name)
 

@@ -220,32 +220,31 @@ Options.SyncOverlay = Options.SyncLayout   -- the old name, kept for old callers
 -- wall of herb names and finding the one you want to mute means reading all of
 -- them. Fold the expansions you're not playing in and the problem goes away.
 --
--- WHY THIS GROUPS BY NODE TYPE, AND USED TO GROUP BY EXPANSION
+-- WHERE THE EXPANSION COMES FROM: a table. NS.Species, in Species.lua.
 --
--- It used to bucket by expansion, which it got from the 15th return of
--- C_Item.GetItemInfo -- because back then a node's id WAS the id of the item it
--- dropped, so the expansion came for free.
+-- It used to come from the 15th return of C_Item.GetItemInfo, which worked only
+-- because a node's id was then the id of the item it dropped. Once identity moved
+-- to the SPECIES (Peacebloom is 401, Copper Vein is 201), that call started
+-- handing back some unrelated Classic item that happened to own the number 401 --
+-- and its expansion -- so every herb was filed under a random one.
 --
--- It isn't anymore. A node is now identified by its SPECIES (GatherMate's
--- numbering: Peacebloom is 401, Copper Vein is 201), because that's what the world
--- actually shows you and it's what the live soft-target source and the seed data
--- both speak. Feed 401 to GetItemInfo and it will confidently hand you back some
--- unrelated Classic item and its expansion -- so every herb ended up filed under
--- a random expansion. That was the bug.
---
--- There is no species -> expansion mapping to be had. GatherMate doesn't publish
--- one, and deriving it from the item would only work for species you had already
--- gathered -- so the list would start life entirely in "Other" and rows would
--- migrate between groups as you played, which is worse than not grouping at all.
---
--- So we group by the one thing we always know for certain and can never get wrong:
--- what KIND of node it is. Which is, conveniently, the axis people actually filter
--- along.
+-- The set of herbs in the game is finite and changes once a year. It doesn't need
+-- deriving at runtime, and deriving it is what broke it. So it's written down, and
+-- an expansion lookup is now a table read that cannot be wrong and cannot be nil-
+-- until-cached.
 
 local headerPool, rowPool = {}, {}
 
-local function groupName(nodeType)
-    return NS.NodeTypeLabel[nodeType] or nodeType
+local OTHER = "OTHER"     -- a species the table doesn't know (yet)
+
+local function expansionOf(nodeType, id)
+    local s = NS.Species[nodeType] and NS.Species[nodeType][id]
+    return s and s.expac or OTHER
+end
+
+local function expansionName(key)
+    if key == OTHER then return "Other" end
+    return _G["EXPANSION_NAME" .. key] or ("Expansion " .. tostring(key))
 end
 
 local function getHeader(content, i)
@@ -293,20 +292,27 @@ local function rebuildNodeList(list)
     for _, h in ipairs(headerPool) do h:Hide() end
     for _, r in ipairs(rowPool) do r:Hide() end
 
-    -- One bucket per node type, in the addon's own order (NS.NodeTypeOrder), so
-    -- the headers don't reshuffle themselves between sessions.
+    -- Bucket everything we know by expansion.
     local groups, keys = {}, {}
     for _, nType in ipairs(NS.NodeTypeOrder) do
-        local known = db.knownNodes[nType]
-        if known and next(known) then
-            local g = {}
-            for id, name in pairs(known) do
-                g[#g + 1] = { type = nType, id = id, name = name }
+        for id, name in pairs(db.knownNodes[nType] or {}) do
+            local key = expansionOf(nType, id)
+            local g = groups[key]
+            if not g then
+                g = {}
+                groups[key] = g
+                keys[#keys + 1] = key
             end
-            groups[nType] = g
-            keys[#keys + 1] = nType
+            g[#g + 1] = { type = nType, id = id, name = name }
         end
     end
+
+    -- Newest expansion first -- it's the one you're playing. "Other" always last.
+    table.sort(keys, function(a, b)
+        if a == OTHER then return false end
+        if b == OTHER then return true end
+        return a > b
+    end)
 
     local hIdx, rIdx, y = 0, 0, -4
 
@@ -322,7 +328,7 @@ local function rebuildNodeList(list)
         h:SetPoint("TOPLEFT", list, "TOPLEFT", 0, y)
         h.text:SetText(("%s %s |cff888888(%d)|r"):format(
             collapsed and "|cffffd100+|r" or "|cffffd100-|r",
-            groupName(key), #entries))
+            expansionName(key), #entries))
         h:SetScript("OnClick", function()
             db.filterCollapsed[key] = not collapsed
             rebuildNodeList(list)      -- redraw in place; cheap, and it feels instant

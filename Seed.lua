@@ -39,16 +39,19 @@ local addonName, NS = ...
 -- name of its ore ("Copper Ore") rather than the thing you actually see in the
 -- world ("Copper Vein"), which are not the same word and never were.
 --
--- GatherMate identifies a node the way the world does: by the NODE. It has a
--- number for every species and a name to go with it (GatherMate2:GetNameForNode),
--- so we adopt that as the identity and the filter list fills itself in with every
--- species that exists in the zone you just flew into -- before you gather
--- anything.
+-- A node is now identified the way the world identifies it: by SPECIES. Every
+-- one of them, its name, and its expansion is written down in Species.lua -- so
+-- the filter list fills in with every species in the zone you just flew into,
+-- before you gather anything, and it needs no addon installed to do it.
+--
+-- The seed data is keyed on those same species numbers, which is the only reason
+-- this file can read it at all. But the NAMES, the TYPES and the EXPANSIONS are
+-- ours. The one thing we want from GatherMate is coordinates.
 --
 -- The item is demoted to what it always really was: ART. It is stored as
 -- `node.item` and used for one thing, drawing the icon, once you've picked one.
 --
---     GatherMate says WHERE it is and WHAT it is.
+--     GatherMate says WHERE it is.
 --     Your own gathers say WHAT IT LOOKS LIKE, and refine where.
 --
 -- ONE TABLE PER NODE, ALWAYS
@@ -117,16 +120,15 @@ function Seed.IsAvailable()
     return ensure()
 end
 
--- The species name for a GatherMate node id, if GatherMate2 itself is loaded to
--- tell us. It usually is -- GatherMate2_Data lists it as a dependency, so having
--- the data at all means having the addon. But we degrade rather than assume: no
--- name simply means the filter list shows the id, not that anything breaks.
-local function speciesName(prof, nodeID)
-    local gm = _G.GatherMate2
-    if not (gm and gm.GetNameForNode) then return nil end
-    local ok, name = pcall(gm.GetNameForNode, gm, prof, nodeID)
-    if ok then return name end
-    return nil
+-- The species name for a node id.
+--
+-- This used to ask the GatherMate2 addon. It doesn't need to: the seed data is
+-- keyed on species numbers, and we have our own table of every species in the
+-- game (Species.lua). So the only thing we now want from GatherMate is the
+-- POSITIONS -- names, types and expansions are ours.
+local function speciesName(nodeType, nodeID)
+    local s = NS.Species[nodeType] and NS.Species[nodeType][nodeID]
+    return s and s.name or nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -229,7 +231,7 @@ local function build(mapID)
                 if playerAlreadyHas(pcells, mapID, x, y, src.type, dedupe) then
                     pruned = pruned + 1
                 else
-                    local name = speciesName(src.prof, nodeID)
+                    local name = speciesName(src.type, nodeID)
 
                     -- The species goes into the filter list whether or not you've
                     -- ever gathered one. This is the whole point: fly into a zone
