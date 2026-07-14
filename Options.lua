@@ -27,7 +27,10 @@ local panel
 -- Controls that only mean something in one mode. Refresh greys out the ones the
 -- current mode ignores, so nobody drags "Radar size" in cue mode and wonders why
 -- the world isn't changing.
-local radarOnly, cueOnly = {}, {}
+-- `cueOnly` no longer means "hidden in radar mode" -- the radar isn't on this page
+-- any more. It survives because the column layout reads it to work out which
+-- controls are sliders and need SLIDER_LEAD headroom above them.
+local cueOnly = {}
 
 -- ---- small parts, made by hand ----------------------------------------------
 
@@ -237,11 +240,6 @@ local headerPool, rowPool = {}, {}
 
 local OTHER = "OTHER"     -- a species the table doesn't know (yet)
 
-local function expansionOf(nodeType, id)
-    local s = NS.Species[nodeType] and NS.Species[nodeType][id]
-    return s and s.expac or OTHER
-end
-
 local function expansionName(key)
     if key == OTHER then return "Other" end
     return _G["EXPANSION_NAME" .. key] or ("Expansion " .. tostring(key))
@@ -292,18 +290,28 @@ local function rebuildNodeList(list)
     for _, h in ipairs(headerPool) do h:Hide() end
     for _, r in ipairs(rowPool) do r:Hide() end
 
-    -- Bucket everything we know by expansion.
+    -- EVERY species in the game, bucketed by expansion.
+    --
+    -- It used to list only what you'd "discovered", and that made the list a
+    -- hostage to whatever data happened to be loaded that session -- wipe your
+    -- saved variables, or play without the seed data, and the list came up EMPTY,
+    -- with nothing to filter and no way to filter it. A filter list that can be
+    -- empty is a filter list that doesn't work.
+    --
+    -- Species.lua knows every herb, vein and log in the game. So the list does
+    -- too. All of them, always, whether you've seen one or not -- fold the
+    -- expansions you aren't playing and the length stops mattering.
     local groups, keys = {}, {}
     for _, nType in ipairs(NS.NodeTypeOrder) do
-        for id, name in pairs(db.knownNodes[nType] or {}) do
-            local key = expansionOf(nType, id)
+        for id, s in pairs(NS.Species[nType] or {}) do
+            local key = s.expac or OTHER
             local g = groups[key]
             if not g then
                 g = {}
                 groups[key] = g
                 keys[#keys + 1] = key
             end
-            g[#g + 1] = { type = nType, id = id, name = name }
+            g[#g + 1] = { type = nType, id = id, name = s.name }
         end
     end
 
@@ -314,13 +322,18 @@ local function rebuildNodeList(list)
         return a > b
     end)
 
+    local newest = keys[1]
+
     local hIdx, rIdx, y = 0, 0, -4
 
     for _, key in ipairs(keys) do
         local entries = groups[key]
         table.sort(entries, function(a, b) return (a.name or "") < (b.name or "") end)
 
-        local collapsed = db.filterCollapsed[key] == true
+        -- Everything folds shut by default EXCEPT the expansion you're playing.
+        -- Four hundred rows unrolled is not a filter list, it's a phone book.
+        local collapsed = db.filterCollapsed[key]
+        if collapsed == nil then collapsed = (key ~= newest) end
 
         hIdx = hIdx + 1
         local h = getHeader(list, hIdx)
@@ -471,14 +484,37 @@ local function buildPanel()
     displayLabel:SetText("Display")
     y = y - 20
 
-    -- The switch that retired the radar.
-    local function getMode() return NS.db.mode or "cue" end
-    local function setMode(v) NS.db.mode = v end
-    place(makeRadio(L, "Cue only (recommended)", "cue", getMode, setMode), 22)
-    place(makeRadio(L, "Radar only", "radar", getMode, setMode), 22)
-    place(makeRadio(L, "Both", "both", getMode, setMode), 22)
+    -- ---------------------------------------------------------------------
+    -- The one setting that decides what this addon IS.
+    --
+    -- This used to be the cue/radar/both switch. The radar is gone from here --
+    -- it was a choice between two ways of DRAWING, which nobody needed to make,
+    -- while the choice that actually matters wasn't on the page at all.
+    --
+    -- That choice is whether the addon is allowed to tell you about things it
+    -- isn't sure are there. Off, and every cue is real. On, and you get much more
+    -- warning, most of which is wrong. There is no third answer -- that's the
+    -- shape of the game's API, not a design we picked. See Live.lua.
+    --
+    -- (The radar still exists: /eu mode radar. It just isn't a decision worth
+    -- putting in front of someone.)
+    -- ---------------------------------------------------------------------
+    place(makeCheck(L, "Show guesses",
+        function() return NS.db.showGuesses end,
+        function(v) NS.db.showGuesses = v end))
 
-    y = y - 8
+    local gnote = L:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    gnote:SetPoint("TOPLEFT", L, "TOPLEFT", 6, y)
+    gnote:SetWidth(210)
+    gnote:SetJustifyH("LEFT")
+    gnote:SetText("Off: only nodes that are really there. Never wrong, "
+                .. "but only reaches ~15-25 yd.\n"
+                .. "On: also points at places a node has BEEN, out to your full "
+                .. "range. Most of those won't be there. They draw faint and "
+                .. "never make a sound.")
+    y = y - 62
+
+    y = y - 4
     place(makeCheck(L, "Enabled",
         function() return NS.db.enabled end,
         function(v) NS.db.enabled = v end))
@@ -506,12 +542,6 @@ local function buildPanel()
     place(makeCheck(L, "Use my own icons (Textures/)",
         function() return (NS.db.iconStyle or "item") == "custom" end,
         function(v) NS.db.iconStyle = v and "custom" or "item" end), 26, cueOnly)
-    place(makeCheck(L, "Show range ring",
-        function() return NS.db.showRing end,
-        function(v) NS.db.showRing = v end), 26, radarOnly)
-    place(makeCheck(L, "Show pointer to nearest",
-        function() return NS.db.showPointer end,
-        function(v) NS.db.showPointer = v end), 26, radarOnly)
 
     y = y - 6
     local soundLabel = L:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -598,15 +628,9 @@ local function buildPanel()
     placeM(makeSlider(M, "Border thickness", 0, 6, 1,
         function() return NS.db.cueBorderSize end,
         function(v) NS.db.cueBorderSize = v end, "%.0fpx"), 44, cueOnly)
-    placeM(makeSlider(M, "Radar size (px)", 100, 400, 5,
-        function() return NS.db.radarSize end,
-        function(v) NS.db.radarSize = v end, "%.0f"), 44, radarOnly)
     placeM(makeSlider(M, "Active opacity", 0, 1, 0.01,
         function() return NS.db.activeAlpha end,
         function(v) NS.db.activeAlpha = v end), 44)
-    placeM(makeSlider(M, "Radar resting opacity", 0, 1, 0.01,
-        function() return NS.db.baseAlpha end,
-        function(v) NS.db.baseAlpha = v end), 44, radarOnly)
     -- One pair of sliders, in yards, always. There used to be two pairs and a fork
     -- on NS.HasHBD -- a "zone %" slider for players without HereBeDragons, because
     -- the addon didn't know how big a zone was. It does now (Data.MapSize), so a
@@ -721,10 +745,11 @@ function Options.Refresh()
         if c.Refresh then c.Refresh() end
     end
 
-    -- Grey out whatever the current mode doesn't draw.
-    local mode = NS.db.mode or "cue"
-    for _, c in ipairs(radarOnly) do setDimmed(c, mode ~= "cue") end
-    for _, c in ipairs(cueOnly)   do setDimmed(c, mode ~= "radar") end
+    -- There used to be mode-based greying here -- radar controls dimmed in cue
+    -- mode and vice versa. The radar isn't on this page any more, so every control
+    -- that remains applies to the only thing we draw, and nothing needs dimming.
+    -- (The `cueOnly` group is kept so the sliders still get their SLIDER_LEAD
+    -- headroom from the layout code; it just no longer means "sometimes off".)
 
     rebuildNodeList(Options.list)
 end
