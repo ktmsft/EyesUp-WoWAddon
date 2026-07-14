@@ -1,0 +1,57 @@
+## Interface: 120007
+## Title: Eyes Up
+## Notes: Watch the world, not the minimap. A quiet cue when something worth stopping for is near.
+## Author: you
+## Version: 0.2.0
+## SavedVariablesPerCharacter: EyesUpDB
+## IconTexture: Interface\ICONS\INV_Misc_Herb_16
+
+# Load order is load-bearing, not stylistic.
+#
+# Every file binds the modules it depends on at file scope (local Data = NS.Data).
+# List one too early and it doesn't error -- it quietly gets nil, and you find out
+# about it three zones later.
+#
+#   Constants   enums, colors, defaults. Depends on nobody.
+#   Database    what we remember, how far, which way, and the filter gate
+#   Seed        SOURCE: somebody else's map (GatherMate2_Data), if it's installed.
+#               Needs Data. Optional at runtime; we bundle none of it.
+#   Live        SOURCE: the soft-interact target -- the ONLY thing that can tell us
+#               a node is really there. Needs Data and Seed (Seed is how it knows
+#               WHERE the thing it found is). This is the default cue.
+#   Vignettes   what we can actually SEE (treasures). Needs Data.
+#   Overlay     RENDERER: the radar. Opt-in now -- see NS.db.mode.
+#   Cue         RENDERER: the thing in the middle of your screen. The point.
+#   Scan        THE ENGINE: one look around per tick, handed to the renderers.
+#               Loads after them, because it's the only file that needs them.
+#   Options     the knobs
+#   Probe       a DIAGNOSTIC, not a feature. Nothing depends on it; delete the
+#               file and the addon is unchanged. It needs Scan (to borrow the
+#               nearest node for the nav test), so it loads after it.
+#   Core        wakes everything up. Assumes the rest exists, so it goes last.
+Constants.lua
+Database.lua
+Seed.lua
+Live.lua
+Vignettes.lua
+Overlay.lua
+Cue.lua
+Scan.lua
+Options.lua
+Probe.lua
+Core.lua
+
+# --- Bumping for 12.1 ----------------------------------------------------------
+# Change Interface to 120100 when the patch lands. Several at once is fine:
+#   ## Interface: 120007, 120100
+# -------------------------------------------------------------------------------
+
+# --- No libraries ---------------------------------------------------------------
+# Eyes Up needs no libraries and never will.
+#
+# It used to list HereBeDragons as an OptionalDeps, and used it for true yards
+# when it happened to be installed. It turned out the client answers the only
+# question we were asking it -- C_Map.GetMapWorldSize gives a zone's real size in
+# yards, per axis, for free. See Data.MapSize. One code path, no dependency, and
+# a yard is now a yard whether or not you have anything else installed.
+# -------------------------------------------------------------------------------
