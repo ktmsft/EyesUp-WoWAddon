@@ -131,40 +131,46 @@ NS.NodeTypeGlyph = {
 NS.FallbackGlyph = "Interface\\ICONS\\INV_Misc_QuestionMark"
 
 -- -----------------------------------------------------------------------------
--- Your art, if you'd rather.
+-- Your art.
 --
--- Set iconStyle = "custom" (there's a checkbox) and the cue stops showing you the
--- game's item art and shows these instead: one clean generic icon per type, the
--- same every time. Some people want to see the actual Mycobloom. Some people want
--- to see "a herb" and get on with their day. Both are reasonable.
+-- Tick "Use my icons instead of the game's" (db.iconStyle = "custom") and the cue
+-- draws these, always: one clean icon per node type, the same every time. Some
+-- people want to see the actual Mycobloom. Some people want to see "a herb" and
+-- get on with their day. Both are reasonable, which is why it's a switch -- and
+-- why it's the ONLY icon switch.
 --
--- The files live in images/. Note there's no extension in the paths below -- that
--- isn't an oversight, WoW resolves .tga and .blp either way.
+-- The files live in textures/. Note there's no extension in the paths below --
+-- that isn't an oversight, WoW resolves .tga and .blp either way.
 --
--- TWO THINGS THAT WILL COST YOU AN EVENING IF YOU DON'T KNOW THEM:
+-- THE FOLDER NAME MUST MATCH THE DISK, CASE AND ALL, even though Windows doesn't
+-- care. Say "Textures" here while the folder is "textures" and it works on your
+-- machine and renders blank squares for anyone who unzips it somewhere
+-- case-sensitive. It's lowercase on both sides. Keep it that way.
+--
+-- TWO MORE THINGS THAT WILL COST YOU AN EVENING:
 --
 --   1. Textures MUST have power-of-two dimensions (256x256, 128x128...). WoW's
 --      loader simply refuses anything else -- no error, no warning, just a blank
---      square where your icon should be. The art in images/ has been resized to
---      256x256 for exactly this reason; images/original/ has the untouched files.
+--      square where your icon should be. FISHING.tga arrived as 1024x989 and was
+--      exactly this: invisible, and silent about it. Everything in textures/ is
+--      256x256 now; textures/original/ keeps the full-size art.
 --
---   2. WoW gives Lua NO WAY to ask whether a texture file exists. So the addon
---      cannot check, cannot warn, and cannot fall back to something else. A blank
---      icon in "custom" mode always means: missing file, wrong name, or not a
---      power of two. There is no third possibility.
+--   2. WoW gives Lua NO WAY to ask whether a texture file exists, or whether it
+--      loaded. So the addon cannot check, cannot warn, and cannot fall back. A
+--      blank icon always means: missing file, wrong name, wrong case, or not a
+--      power of two. There is no third possibility, and no code you can write
+--      here will detect it -- go and look at the file.
 --
--- A nil entry below is different, and safe: it means "I have no custom art for
--- this type", and the cue quietly uses the built-in glyph instead. Which is why
--- FISHING is nil -- there's no fishing icon in images/ yet. Draw one, drop it in
--- as images/FISHING.tga, and fill in the line.
+-- A nil entry below is safe and different: it means "no art for this type", and
+-- the cue quietly uses the built-in Blizzard glyph instead.
 -- -----------------------------------------------------------------------------
-NS.CustomGlyphDir = "Interface\\AddOns\\EyesUp\\Textures\\"
+NS.CustomGlyphDir = "Interface\\AddOns\\EyesUp\\textures\\"
 NS.CustomGlyph = {
     HERB     = NS.CustomGlyphDir .. "HERBING",
     MINE     = NS.CustomGlyphDir .. "MINING",
     LUMBER   = NS.CustomGlyphDir .. "LUMBER",
     TREASURE = NS.CustomGlyphDir .. "TREASURE",
-    FISHING  = nil,   -- no art yet -> falls back to NS.NodeTypeGlyph.FISHING
+    FISHING  = NS.CustomGlyphDir .. "FISHING",
 }
 
 -- The arrow. Points north at rotation 0, which is the assumption baked into all
@@ -336,29 +342,21 @@ NS.defaults = {
     cueCount         = 1,
     cueSecondaryScale = 0.62,   -- how much smaller the runners-up are drawn
 
-    -- Which face the cue wears: the item's own art, or your generic pack.
-    --   "item"   -- a Mycobloom looks like a Mycobloom (needs you to have gathered
-    --              one before, so we know what it drops)
-    --   "custom" -- your art from Textures/, one icon per type, always the same
-    -- See NS.CustomGlyph above for where the files go.
+    -- WHICH FACE THE CUE WEARS. One setting, two answers, and that's all there is.
+    --
+    --   "item"   -- the game's own art. A Mycobloom looks like a Mycobloom, once
+    --              you've gathered one and we know what the species drops. Until
+    --              then, the built-in glyph for its type, tinted by its color.
+    --   "custom" -- your art, from textures/. One icon per type, every time. A herb
+    --              is a herb. Nothing changes as you play.
+    --
+    -- There was briefly a second switch (standInGlyphs) that used your art as the
+    -- fallback inside "item" mode. Two checkboxes that both read "use my icons" and
+    -- meant different things is not a setting, it's a riddle. One switch now.
+    --
+    -- See NS.CustomGlyph above for where the files go -- and for why a blank icon
+    -- is always a file problem and never a code problem.
     iconStyle        = "item",  -- "item" | "custom"
-
-    -- Use your own art (Textures/) whenever we DON'T know the real item.
-    --
-    -- Not the same switch as iconStyle = "custom", which throws item art away
-    -- entirely. This one is a stand-in: real art still wins when we have it, and
-    -- your glyph fills the gap when we don't.
-    --
-    -- That gap is now the common case, not the rare one. The cue's best source is
-    -- a live soft-target node -- a herb we KNOW is there and whose species we know
-    -- -- but which you may never have gathered, so we've never seen what it drops.
-    -- Blizzard's generic leaf for all of those was a poor showing.
-    --
-    -- WoW gives Lua no way to ask whether a texture file exists, so a missing or
-    -- wrongly-sized file renders as a blank square and the addon cannot tell. If
-    -- your icons go blank, that's the reason -- see Textures/README.md. Turn this
-    -- off to fall back to the built-in glyphs.
-    standInGlyphs    = true,
 
     -- Icon presentation.
     cueSquareIcon    = true,    -- crop the stock bevel; make it a clean square

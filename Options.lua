@@ -535,11 +535,15 @@ local function buildPanel()
     place(makeCheck(L, "Color border by node type",
         function() return NS.db.cueBorderTypeColor end,
         function(v) NS.db.cueBorderTypeColor = v end), 26, cueOnly)
-    -- Real item art, or your own generic pack. See NS.CustomGlyph for where the
-    -- files go -- and note WoW gives us no way to check they're actually there,
-    -- so if you turn this on and get blank squares, that's the missing file
-    -- talking.
-    place(makeCheck(L, "Use my own icons (Textures/)",
+    -- The only icon setting there is: your art, or the game's.
+    --
+    -- Unticked you get the real item once we know what a species drops, and the
+    -- game's generic glyph for its type until then. Ticked you get your own art
+    -- from textures/, always, and it never changes.
+    --
+    -- (WoW gives Lua no way to check a texture actually loaded. Blank squares here
+    -- always mean the file -- missing, misnamed, wrong case, or not a power of two.)
+    place(makeCheck(L, "Use my icons instead of the game's",
         function() return (NS.db.iconStyle or "item") == "custom" end,
         function(v) NS.db.iconStyle = v and "custom" or "item" end), 26, cueOnly)
 

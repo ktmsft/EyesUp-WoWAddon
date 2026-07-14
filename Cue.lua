@@ -152,27 +152,25 @@ local function applyIcon(slot, node)
         itemID = node.id
     end
 
+    -- ONE SWITCH, TWO ANSWERS. That's the whole of it.
+    --
+    --   "custom" -- your art, from textures/. One icon per type, every time. A herb
+    --               is a herb. Nothing to learn, nothing that changes as you play.
+    --   "item"   -- the game's own art: the actual Mycobloom, once we know what
+    --               this species drops. Until then, Blizzard's generic glyph for
+    --               the type, tinted by its color.
+    --
+    -- There used to be a THIRD thing here -- standInGlyphs -- which quietly used
+    -- your art as the fallback inside "item" mode. It was a sensible behavior and a
+    -- terrible setting: two checkboxes that both said "use my icons" and meant
+    -- different things, and no way to tell from the page which one was in charge.
+    -- Gone. If you want your art, ask for your art.
     local icon, isRealArt
     if (db.iconStyle or "item") == "custom" then
         icon = NS.CustomGlyph[node.type]
     elseif itemID then
         icon = itemIcon(itemID)
         isRealArt = icon ~= nil
-    end
-
-    -- The stand-in.
-    --
-    -- This matters far more than it used to. The cue's best source is now the LIVE
-    -- soft-target node -- something we know is really there, and whose species we
-    -- know -- but which we may never have gathered, so we have no idea what it
-    -- drops and therefore no item art for it. Before, that meant Blizzard's
-    -- generic leaf. Now it means the player's own art from Textures/, which is
-    -- nicer, more legible at small sizes, and theirs.
-    --
-    -- Note the ORDER: real item art still wins when we have it. This is a stand-in
-    -- for the thing we don't know, not a replacement for the thing we do.
-    if not icon and db.standInGlyphs then
-        icon = NS.CustomGlyph[node.type]
     end
 
     if not icon then

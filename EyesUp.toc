@@ -1,10 +1,13 @@
 ## Interface: 120007
 ## Title: Eyes Up
 ## Notes: Watch the world, not the minimap. A quiet cue when something worth stopping for is near.
-## Author: you
-## Version: 0.2.0
+## Author: Kennedy Michel
+## Version: 0.3.0
 ## SavedVariablesPerCharacter: EyesUpDB
 ## IconTexture: Interface\ICONS\INV_Misc_Herb_16
+## X-Category: Map & Minimap
+## X-License: MIT
+## OptionalDeps: GatherMate2_Data
 
 # Load order is load-bearing, not stylistic.
 #
