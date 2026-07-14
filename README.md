@@ -152,17 +152,6 @@ Delete `Probe.lua` and the addon is unchanged.
 `/eu near` is the one you'll actually want: it lists everything the cue can
 currently see, how far, which way, and whether it's a real thing or a guess.
 
-## Coming from NodeSight?
-
-Same addon, new name. Your old data lives in a file named after the old addon:
-
-1. Log out.
-2. Find `WTF/Account/<ACCOUNT>/<Realm>/<Character>/SavedVariables/NodeSight.lua`
-3. Copy it next to itself as `EyesUp.lua`.
-4. Log back in — it'll find the old table, adopt it, and say so.
-
-Or don't. It's not much of a loss.
-
 ## Under the hood
 
 | file | what it's for |
