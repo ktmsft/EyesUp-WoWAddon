@@ -184,6 +184,38 @@ local function makePriority(parent, nodeType)
     return b
 end
 
+-- A dropdown: a button showing the current choice, opening a radio menu on click.
+--
+-- Built on MenuUtil (the modern menu system, stable since 11.0) rather than the
+-- old UIDropDownMenu -- one call, a proper popup, and the button's text always
+-- mirrors the selection. `options` is { {value=, label=}, ... }.
+local function makeDropdown(parent, width, options, getter, setter)
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    b:SetSize(width or 190, 22)
+
+    local function labelFor()
+        local cur = getter()
+        for _, o in ipairs(options) do if o.value == cur then return o.label end end
+        return options[1] and options[1].label or "?"
+    end
+
+    b:SetText(labelFor())
+    b.Refresh = function() b:SetText(labelFor()) end
+
+    b:SetScript("OnClick", function()
+        if not MenuUtil then return end
+        MenuUtil.CreateContextMenu(b, function(_, root)
+            for _, o in ipairs(options) do
+                root:CreateRadio(o.label,
+                    function() return getter() == o.value end,
+                    function() setter(o.value); b:SetText(labelFor()) end)
+            end
+        end)
+    end)
+
+    return b
+end
+
 local function makeSlider(parent, label, minV, maxV, step, getter, setter, fmt)
     local s = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
     s.isSlider = true
@@ -368,6 +400,97 @@ local function rebuildNodeList(list)
     if Options.UpdateHeight then Options.UpdateHeight() end
 end
 
+-- ---- the HUD's "what to track" list -----------------------------------------
+--
+-- Every minimap tracking type the client offers, live (NS.Hud.ListTracking), as a
+-- grid of checkboxes. Gathering up front; everything else -- mailbox, auctioneer,
+-- quest markers, the lot -- folded behind an expander, because that list is long
+-- and you rarely want any of it on a gathering HUD. Rebuilt on demand so the
+-- expander can reflow, exactly like the node filter list.
+local trackCBPool = {}
+
+local function getTrackCB(parent, i)
+    local cb = trackCBPool[i]
+    if not cb then
+        cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+        cb:SetSize(22, 22)
+        cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        cb.label:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+        trackCBPool[i] = cb
+    end
+    return cb
+end
+
+function Options.rebuildTrackList()
+    local container = Options.hudTrackList
+    if not (container and NS.db and NS.Hud) then return end
+
+    for _, cb in ipairs(trackCBPool) do cb:Hide() end
+
+    local db = NS.db
+    local gather, other = {}, {}
+    for _, t in ipairs(NS.Hud.ListTracking()) do
+        if t.cat then gather[#gather + 1] = t else other[#other + 1] = t end
+    end
+
+    local COLW, ROWH = 300, 24
+    local idx, y, col = 0, 0, 0
+    local function checkbox(t)
+        idx = idx + 1
+        local cb = getTrackCB(container, idx)
+        cb:ClearAllPoints()
+        cb:SetPoint("TOPLEFT", container, "TOPLEFT", col * COLW, y)
+        cb.label:SetText(t.name)
+        cb:SetChecked(NS.Hud.TrackWanted(t.key, t.cat) and true or false)
+        cb:SetScript("OnClick", function(self)
+            NS.Hud.SetTrackWanted(t.key, self:GetChecked())
+        end)
+        cb:Show()
+        col = col + 1
+        if col > 1 then col = 0; y = y - ROWH end
+    end
+
+    for _, t in ipairs(gather) do checkbox(t) end
+    if col ~= 0 then col = 0; y = y - ROWH end        -- finish the row
+
+    if #other > 0 then
+        local ex = Options.hudExpander
+        if not ex then
+            ex = CreateFrame("Button", nil, container)
+            ex:SetSize(300, 18)
+            ex.text = ex:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            ex.text:SetPoint("LEFT", 2, 0)
+            ex:SetHighlightFontObject("GameFontHighlightSmall")
+            Options.hudExpander = ex
+        end
+        ex:SetParent(container)
+        ex:ClearAllPoints()
+        ex:SetPoint("TOPLEFT", container, "TOPLEFT", 0, y)
+        local expanded = db.hudTrackExpanded
+        ex.text:SetText((expanded and "|cffffd100-|r " or "|cffffd100+|r ")
+            .. "|cff888888Everything else (" .. #other .. ")|r")
+        ex:SetScript("OnClick", function()
+            db.hudTrackExpanded = not db.hudTrackExpanded
+            Options.rebuildTrackList()
+        end)
+        ex:Show()
+        y = y - 22
+
+        if expanded then
+            for _, t in ipairs(other) do checkbox(t) end
+            if col ~= 0 then col = 0; y = y - ROWH end
+        end
+    elseif Options.hudExpander then
+        Options.hudExpander:Hide()
+    end
+
+    container:SetHeight(math.max(1, -y))
+    if Options.hudContent then
+        Options.hudContent:SetHeight((Options.hudTrackTop or 300) + math.max(1, -y) + 30)
+        if Options.hudUpdateScroll then Options.hudUpdateScroll() end
+    end
+end
+
 -- ---- the page ---------------------------------------------------------------
 
 local CONTENT_W  = 660    -- the width the three columns were drawn for
@@ -505,6 +628,20 @@ local function buildHudPage()
     noteL("Puts a real map -- roads, your position -- where the minimap used to be, "
         .. "since the blips have taken its old spot.", 40)
 
+    placeL(makeCheck(L, "Blip tooltips on hover",
+        function() return NS.db.hudTooltips end,
+        function(v) NS.db.hudTooltips = v; NS.Hud.ApplyLook() end))
+    noteL("Hover a blip to see what it is, like the corner minimap. The catch: the "
+        .. "HUD then captures the mouse over its circle, so you can't click the "
+        .. "world through it.", 44)
+
+    placeL(makeCheck(L, "Share settings across all my characters",
+        function() return NS.SettingsAreShared and NS.SettingsAreShared() end,
+        function(v) if NS.SetSettingsShared then NS.SetSettingsShared(v) end end))
+    noteL("On: every character reads and writes one shared set of settings (and the "
+        .. "nodes you've gathered). Off: each character keeps its own. Flipping this "
+        .. "copies your current settings across, then reloads.", 48)
+
     -- ---- right column: what to track, and the dials ----
     local R = CreateFrame("Frame", nil, content)
     R:SetPoint("TOPLEFT", 336, -60)
@@ -532,33 +669,6 @@ local function buildHudPage()
         ry = ry - 18
     end
 
-    headerR("What to track")
-    placeR(makeCheck(R, "Let Eyes Up choose (hide the rest)",
-        function() return NS.db.hudManageTracking end,
-        function(v)
-            NS.db.hudManageTracking = v
-            if NS.Hud.IsActive() then NS.Hud.Disable(); NS.Hud.Enable() end
-        end))
-    noteR("On: show only the ticks below, nothing else. Off: leave your minimap "
-        .. "tracking exactly as you set it.", 36)
-
-    for _, t in ipairs({
-        { key = "herbs",    label = "Herbs" },
-        { key = "minerals", label = "Minerals" },
-        { key = "fish",     label = "Fish" },
-        { key = "treasure", label = "Treasure" },
-    }) do
-        local key = t.key
-        placeR(makeCheck(R, t.label,
-            function() return not NS.db.hudTrack or NS.db.hudTrack[key] ~= false end,
-            function(v)
-                NS.db.hudTrack = NS.db.hudTrack or {}
-                NS.db.hudTrack[key] = v
-                NS.Hud.ApplyLook()
-            end), 24, 16)
-    end
-    noteR("You only see the ones your professions actually grant.", 30)
-
     headerR("Size & feel")
     placeR(makeSlider(R, "HUD size (px)", 150, 600, 10,
         function() return NS.db.hudSize end,
@@ -582,7 +692,45 @@ local function buildHudPage()
 
     L:SetHeight(math.max(1, -ly))
     R:SetHeight(math.max(1, -ry))
-    content:SetHeight(math.max(200, 80 + math.max(-ly, -ry)))
+    local colBottom = 60 + math.max(-ly, -ry)   -- 60 = the columns' top offset
+
+    -- ---- full width, below the columns: WHAT TO TRACK -----------------------
+    -- The whole minimap tracking list, live. Master toggle, then a grid of every
+    -- type; gathering shown, the rest folded. It's here at the bottom (not in a
+    -- column) so the expander can grow the page without shoving anything sideways.
+    local tTop = colBottom + 22
+
+    local tHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    tHeader:SetPoint("TOPLEFT", 16, -tTop)
+    tHeader:SetText("What to track")
+
+    local master = makeCheck(content, "Let Eyes Up choose what my minimap tracks",
+        function() return NS.db.hudManageTracking end,
+        function(v)
+            NS.db.hudManageTracking = v
+            if NS.Hud.IsActive() then NS.Hud.Disable(); NS.Hud.Enable() end
+        end)
+    master:SetPoint("TOPLEFT", 16, -(tTop + 20))
+    controls[#controls + 1] = master
+
+    local mnote = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    mnote:SetPoint("TOPLEFT", 22, -(tTop + 44))
+    mnote:SetWidth(600)
+    mnote:SetJustifyH("LEFT")
+    mnote:SetText("While the HUD is up these OVERRIDE your minimap tracking -- ticked "
+        .. "shows, unticked hides, for good (even mailboxes and quest markers). Off "
+        .. "by default for everything but gathering.")
+
+    local trackList = CreateFrame("Frame", nil, content)
+    trackList:SetPoint("TOPLEFT", 16, -(tTop + 68))
+    trackList:SetSize(620, 1)      -- rebuildTrackList grows it
+
+    Options.hudTrackList    = trackList
+    Options.hudTrackTop     = tTop + 68
+    Options.hudContent      = content
+    Options.hudUpdateScroll = p.UpdateScroll
+
+    Options.rebuildTrackList()
 
     -- Repaint this page's controls to current state whenever Settings shows it.
     p:SetScript("OnShow", function() Options.Refresh() end)
@@ -669,23 +817,30 @@ local function buildCuePage()
     place(makeCheck(L, "Direction arrow",
         function() return NS.db.cueShowArrow end,
         function(v) NS.db.cueShowArrow = v end), 26, cueOnly)
+    place(makeCheck(L, "Show the node's name above the icon",
+        function() return NS.db.cueShowName end,
+        function(v) NS.db.cueShowName = v end), 26, cueOnly)
     place(makeCheck(L, "Square icon",
         function() return NS.db.cueSquareIcon end,
         function(v) NS.db.cueSquareIcon = v end), 26, cueOnly)
     place(makeCheck(L, "Color border by node type",
         function() return NS.db.cueBorderTypeColor end,
         function(v) NS.db.cueBorderTypeColor = v end), 26, cueOnly)
-    -- The only icon setting there is: your art, or the game's.
-    --
-    -- Unticked you get the real item once we know what a species drops, and the
-    -- game's generic glyph for its type until then. Ticked you get your own art
-    -- from textures/, always, and it never changes.
-    --
-    -- (WoW gives Lua no way to check a texture actually loaded. Blank squares here
-    -- always mean the file -- missing, misnamed, wrong case, or not a power of two.)
-    place(makeCheck(L, "Use my icons instead of the game's",
-        function() return (NS.db.iconStyle or "item") == "custom" end,
-        function(v) NS.db.iconStyle = v and "custom" or "item" end), 26, cueOnly)
+    -- Icon source: the dropped item, the profession symbol, or your own art. See
+    -- Cue.applyIcon. ("My own art" reads from textures/ -- and WoW gives Lua no way
+    -- to check a texture loaded, so a blank square there is always the file itself:
+    -- missing, misnamed, wrong case, or not a power of two.)
+    local iconLbl = L:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    iconLbl:SetPoint("TOPLEFT", L, "TOPLEFT", 0, y)
+    iconLbl:SetText("Cue icon shows:")
+    y = y - 18
+    place(makeDropdown(L, 200, {
+        { value = "item",       label = "The item it gives (ore, herb...)" },
+        { value = "profession", label = "Profession symbol (pickaxe...)" },
+        { value = "custom",     label = "My own art (textures/)" },
+    },
+        function() return NS.db.iconStyle or "item" end,
+        function(v) NS.db.iconStyle = v; Options.SyncLayout() end), 30, cueOnly)
 
     y = y - 6
     local soundLabel = L:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -905,4 +1060,5 @@ function Options.Refresh()
         if c.Refresh then c.Refresh() end
     end
     rebuildNodeList(Options.list)
+    if Options.rebuildTrackList then Options.rebuildTrackList() end
 end

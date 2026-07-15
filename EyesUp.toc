@@ -2,8 +2,9 @@
 ## Title: Eyes Up
 ## Notes: Watch the world, not the minimap. A quiet cue when something worth stopping for is near.
 ## Author: Kennedy Michel
-## Version: 0.3.0
+## Version: 1.1.0
 ## SavedVariablesPerCharacter: EyesUpDB
+## SavedVariables: EyesUpAccountDB
 ## IconTexture: Interface\ICONS\INV_Misc_Herb_16
 ## X-Category: Map & Minimap
 ## X-License: MIT
@@ -54,6 +55,11 @@ Scan.lua
 Options.lua
 Probe.lua
 Core.lua
+
+# NOTE: Bindings.xml is NOT listed here on purpose. The client auto-loads a file
+# named exactly "Bindings.xml" from the addon folder and feeds it to the KEYBINDING
+# parser. List it here and the UI-XML parser grabs it instead, doesn't understand
+# <Binding>, and spits "Unrecognized XML" warnings. See Escape > Keybindings.
 
 # --- Bumping for 12.1 ----------------------------------------------------------
 # Change Interface to 120100 when the patch lands. Several at once is fine:

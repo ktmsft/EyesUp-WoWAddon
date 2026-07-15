@@ -376,7 +376,10 @@ function Hud.Enable()
     Minimap:SetPoint("CENTER", UIParent, "CENTER", db.hudX or 0, db.hudY or 0)
     Minimap:SetSize(db.hudSize or 400, db.hudSize or 400)
     Minimap:SetFrameStrata("BACKGROUND")     -- behind everything; it's scenery, not UI
-    Minimap:EnableMouse(false)               -- you should never need to click a HUD
+    -- Mouse: off by default (a 400px zone that eats clicks in the middle of your
+    -- screen is a nuisance while you're grabbing nodes), but the minimap's blip
+    -- tooltips only work WITH the mouse on -- so it's a toggle. See ApplyLook.
+    Minimap:EnableMouse(db.hudTooltips and true or false)
 
     -- BEFORE ApplyLook, not after. ApplyLook is also the live handler for the
     -- sliders, so it early-outs when the HUD isn't up -- which means calling it
@@ -532,15 +535,16 @@ end
 -- OFF the rest -- then put every one back exactly as we found it when the HUD comes
 -- down. The player's tracking is theirs; we're only borrowing it.
 --
--- Each tracking type belongs to a CATEGORY the player can tick on the options page
--- (db.hudTrack.herbs / minerals / fish / treasure). Matched by the known Find-*
--- spell ids first (locale-proof), then a name fallback for anything worded oddly.
--- A tracking type in no category -- Track Beasts, Track Humanoids, quest tracking --
--- is never wanted, so it's turned off while the HUD is up.
+-- Each type is looked up in db.hudTrackList (keyed by spellID, or name for the
+-- non-spell ones). A type the player hasn't touched uses the DEFAULT, which is why
+-- trackCategory exists: it tags the gathering types so they default ON and
+-- everything else -- Mailbox, Auctioneer, Track Beasts, quests -- defaults OFF.
+-- See Hud.TrackWanted. The options page shows a checkbox for every one of them.
 -- ---------------------------------------------------------------------------
 local TRACK_CATEGORIES = {
     { key = "herbs",    spell = 2383,  words = { "herb" } },
     { key = "minerals", spell = 2580,  words = { "mineral", "ore" } },
+    { key = "lumber",   spell = 1256697, words = { "lumber", "timber", "logging" } },
     { key = "fish",     spell = 43308, words = { "fish" } },
     { key = "treasure", spell = 2481,  words = { "treasure" } },
 }
@@ -598,17 +602,53 @@ function applyTracking()
         end
     end
 
-    local track = db.hudTrack or {}
     for i = 1, n do
         local name, activeState, spellID = getTracking(i)
         local cat = trackCategory(name, spellID)
-        -- Show it only if it's a gathering category the player left ticked.
-        -- Everything else -- and any category they unticked -- goes off.
-        local want = cat ~= nil and (track[cat] ~= false)
+        local want = Hud.TrackWanted(spellID or name, cat)
         if want ~= (activeState and true or false) then
             C_Minimap.SetTracking(i, want)
         end
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- The per-type tracking model, shared with the options page.
+--
+--   key    = spellID, or the name for the non-spell types (Mailbox, Auctioneer)
+--   cat    = a gathering category (herbs/minerals/...) or nil for everything else
+--
+-- A key the player has never touched uses the DEFAULT: on for gathering, off for
+-- the rest. So the HUD starts clean, and everything is one tick away.
+-- ---------------------------------------------------------------------------
+function Hud.TrackWanted(key, cat)
+    local saved = NS.db and NS.db.hudTrackList and NS.db.hudTrackList[key]
+    if saved ~= nil then return saved end
+    return cat ~= nil          -- default: gathering shown, all else hidden
+end
+
+function Hud.SetTrackWanted(key, on)
+    if not NS.db then return end
+    NS.db.hudTrackList = NS.db.hudTrackList or {}
+    NS.db.hudTrackList[key] = on and true or false
+    if active then Hud.ApplyLook() end     -- enforce it right away
+end
+
+-- Every tracking type the client currently offers, in menu order, tagged with its
+-- key and gathering category. The options page builds a checkbox per entry.
+function Hud.ListTracking()
+    local out = {}
+    if not (C_Minimap and C_Minimap.GetNumTrackingTypes) then return out end
+    local n = C_Minimap.GetNumTrackingTypes() or 0
+    for i = 1, n do
+        local name, _, spellID = getTracking(i)
+        out[#out + 1] = {
+            name = name or ("Tracking " .. i),
+            key  = spellID or name,
+            cat  = trackCategory(name, spellID),
+        }
+    end
+    return out
 end
 
 function restoreTracking()
@@ -726,6 +766,9 @@ function Hud.ApplyLook()
     local maxZoom = Minimap.GetZoomLevels and Minimap:GetZoomLevels() or 5
     if zoom > maxZoom then zoom = maxZoom elseif zoom < 0 then zoom = 0 end
     Minimap:SetZoom(zoom)
+
+    -- Mouse on = blip tooltips work (but the HUD then eats clicks over its circle).
+    Minimap:EnableMouse(db.hudTooltips and true or false)
 
     -- EXTRAS -- each on its own, so one failing can't take down the rest or the
     -- core. (The player arrow isn't here at all: it's engine-drawn and 12.0 removed

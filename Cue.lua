@@ -85,6 +85,29 @@ end
 --     GetItemIconByID and you'll draw whatever unrelated item happens to own it.
 --     Hence the explicit node.vignette check. It is load-bearing.
 -- ---------------------------------------------------------------------------
+-- The item a node's name points at.
+--
+-- A node is named after what it gives -- but not always with the SAME word. Herbs,
+-- fish and lumber tend to match outright (Mycobloom -> Mycobloom). Mining doesn't:
+-- "Refulgent Copper" the vein gives "Refulgent Copper Ore". So we try the bare
+-- name, then a few type-appropriate suffixes. GetItemInfoInstant returns an itemID
+-- for any of these the client has seen; nil otherwise (then we fall back to the
+-- profession symbol). Whatever lands, the caller remembers against the species.
+local NAME_SUFFIXES = {
+    MINE   = { "", " Ore" },
+    LUMBER = { "", " Lumber" },
+    HERB   = { "" },
+    FISHING = { "" },
+}
+
+local function itemIDByName(nodeType, name)
+    if not (name and C_Item and C_Item.GetItemInfoInstant) then return nil end
+    for _, suffix in ipairs(NAME_SUFFIXES[nodeType] or { "" }) do
+        local iid = C_Item.GetItemInfoInstant(name .. suffix)
+        if iid then return iid end
+    end
+end
+
 local function itemIcon(itemID)
     local cached = iconCache[itemID]
     if cached then return cached end
@@ -152,25 +175,51 @@ local function applyIcon(slot, node)
         itemID = node.id
     end
 
-    -- ONE SWITCH, TWO ANSWERS. That's the whole of it.
+    -- THREE ways to draw the face, chosen by db.iconStyle:
     --
-    --   "custom" -- your art, from textures/. One icon per type, every time. A herb
-    --               is a herb. Nothing to learn, nothing that changes as you play.
-    --   "item"   -- the game's own art: the actual Mycobloom, once we know what
-    --               this species drops. Until then, Blizzard's generic glyph for
-    --               the type, tinted by its color.
-    --
-    -- There used to be a THIRD thing here -- standInGlyphs -- which quietly used
-    -- your art as the fallback inside "item" mode. It was a sensible behavior and a
-    -- terrible setting: two checkboxes that both said "use my icons" and meant
-    -- different things, and no way to tell from the page which one was in charge.
-    -- Gone. If you want your art, ask for your art.
+    --   "item"       -- the actual thing the node gives: the ore, the herb leaf,
+    --                   the fish. Needs us to know what it drops (you've gathered
+    --                   one of that species, or the login backfill learned it from
+    --                   your history). When we DON'T know yet, it falls through to
+    --                   the profession symbol rather than guessing.
+    --   "profession" -- always the plain profession symbol (pickaxe, sprig, ...).
+    --                   Consistent, never changes, tells you the KIND at a glance.
+    --   "custom"     -- your own art from textures/. One icon per type, always.
+    local style = db.iconStyle or "item"
+
+    -- Fishing is special. A pool ("Song Swarm", "Sunbath School", ...) gives a
+    -- grab-bag of fish, so "the item it drops" is a coin toss and usually wrong --
+    -- so in "item" mode a fishing node always shows the fishing glyph instead. The
+    -- NAME tag (set above) still says which pool it is, which is the useful part.
+    -- (Custom mode is untouched: your own fishing art still wins there.)
+    if style == "item" and node.type == NS.NodeType.FISHING then
+        style = "profession"
+    end
+
     local icon, isRealArt
-    if (db.iconStyle or "item") == "custom" then
+    if style == "custom" then
         icon = NS.CustomGlyph[node.type]
-    elseif itemID then
-        icon = itemIcon(itemID)
-        isRealArt = icon ~= nil
+    elseif style == "profession" then
+        icon = NS.NodeTypeGlyph[node.type]
+    else                                        -- "item": the thing the node gives
+        -- The node is NAMED after what it drops -- Mycobloom the plant gives
+        -- Mycobloom the reagent, and most modern ore/fish nodes match too. So if we
+        -- don't already have the item, just ask the item database by the node's
+        -- name. No gather required. Whatever it finds we remember against the
+        -- species, so a live blip is instant (and correct) from then on.
+        if not itemID and node.name then
+            local iid = itemIDByName(node.type, node.name)   -- tries "X" then "X Ore" etc.
+            if iid then
+                itemID = iid
+                if node.id and db.speciesItem and db.speciesItem[node.type] then
+                    db.speciesItem[node.type][node.id] = iid
+                end
+            end
+        end
+        if itemID then
+            icon = itemIcon(itemID)
+            isRealArt = icon ~= nil
+        end
     end
 
     if not icon then
@@ -193,6 +242,9 @@ local function applyIcon(slot, node)
     else
         slot.border:SetColorTexture(bc[1], bc[2], bc[3], bc[4])
     end
+
+    -- The name tag's text -- set here (on target change) rather than every frame.
+    if slot.name then slot.name:SetText(node.name or "") end
 end
 
 -- ---------------------------------------------------------------------------
@@ -260,6 +312,13 @@ local function makeSlot()
     s.arrow:SetTexture(NS.ArrowTexture)
     s.arrow:Hide()
 
+    -- A little name tag above the icon, off unless db.cueShowName. Outlined, because
+    -- it floats over the 3D world and plain text vanishes against bright terrain.
+    s.name = frame:CreateFontString(nil, "OVERLAY")
+    s.name:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+    s.name:SetTextColor(1, 1, 1)
+    s.name:Hide()
+
     return s
 end
 
@@ -267,6 +326,7 @@ local function hideSlot(s)
     s.border:Hide()
     s.icon:Hide()
     s.arrow:Hide()
+    if s.name then s.name:Hide() end
     s.node = nil
 end
 
@@ -386,6 +446,18 @@ local function renderSlot(s, entry, result, elapsed, main, offsetX)
     s.icon:ClearAllPoints()
     s.icon:SetPoint("CENTER", frame, "CENTER", offsetX, 0)
     s.icon:Show()
+
+    -- Name tag: the main slot only, and only if asked. Sits just above the icon;
+    -- since the icon grows and pulses, anchor to its live top so the gap holds.
+    if s.name then
+        if db.cueShowName and main and s.node and s.node.name then
+            s.name:ClearAllPoints()
+            s.name:SetPoint("BOTTOM", s.icon, "TOP", 0, 3 + (db.cueBorderSize or 0))
+            s.name:Show()
+        else
+            s.name:Hide()
+        end
+    end
 
     -- The border grows with the icon rather than being a fixed ring, so it stays
     -- the thickness you asked for while the icon swells and pulses.

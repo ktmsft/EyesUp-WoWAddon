@@ -12,6 +12,33 @@ local addonName, NS = ...
 
 local Data = NS.Data
 
+-- ---------------------------------------------------------------------------
+-- Keybindings (see Bindings.xml).
+--
+-- The binding system calls these by GLOBAL name, so they must be real globals, and
+-- the labels the Keybindings UI shows come from the BINDING_NAME_* globals. The
+-- SECTION they sit under ("Eyes Up Add On") is the `category` in Bindings.xml.
+-- This is the one place we deliberately write to _G.
+--
+-- Why a keybind at all: hubs and renown quest camps are full of service and quest
+-- POIs that are engine-drawn and CANNOT be hidden by any addon (see the note in
+-- Hud.lua). "Step aside in cities" folds the HUD in real towns, but these camps
+-- aren't rest areas -- so the honest answer is a key you can flick to drop the
+-- whole HUD for a moment and bring it back when you leave.
+-- ---------------------------------------------------------------------------
+_G.BINDING_NAME_EYESUP_TOGGLE_HUD = "Toggle the heads-up display"
+_G.BINDING_NAME_EYESUP_TOGGLE_CUE = "Toggle the addon (eyes up / closed)"
+
+function _G.EyesUpToggleHUD()
+    if NS.Hud then NS.Hud.Toggle() end
+end
+
+function _G.EyesUpToggleEnabled()
+    if not NS.db then return end
+    NS.db.enabled = not NS.db.enabled
+    NS.Print(NS.db.enabled and "eyes up." or "eyes closed.")
+end
+
 -- There are two renderers now, and every setting that MOVES something -- lock,
 -- position, size, color -- has to reach both of them. Fan out here, once, so no
 -- call site has to remember. Forget this and "Lock position" mysteriously stops
@@ -221,6 +248,46 @@ local function onLoot()
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Per-character vs. shared-across-all-characters settings.
+--
+-- Two saved files exist (see the .toc): EyesUpDB is per-character, EyesUpAccountDB
+-- is shared. NS.db points at whichever one EyesUpDB.useAccount selects, chosen at
+-- load. Flipping it here copies your CURRENT settings into the OTHER file first --
+-- so nothing is lost or reset -- flags the choice, and asks for a /reload, which
+-- is the clean way to re-point NS.db and Data.nodes without hunting down every
+-- live reference to them.
+-- ---------------------------------------------------------------------------
+local function deepCopy(src, dst)
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            local t = type(dst[k]) == "table" and dst[k] or {}
+            wipe(t)
+            deepCopy(v, t)
+            dst[k] = t
+        else
+            dst[k] = v
+        end
+    end
+end
+
+function NS.SettingsAreShared()
+    return EyesUpDB and EyesUpDB.useAccount == true
+end
+
+function NS.SetSettingsShared(shared)
+    shared = shared and true or false
+    if NS.SettingsAreShared() == shared then return end
+
+    local target = shared and EyesUpAccountDB or EyesUpDB
+    deepCopy(NS.db, target)          -- carry everything (settings AND gathered data) across
+    EyesUpDB.useAccount = shared     -- set AFTER the copy, so the copy can't stamp the wrong value
+
+    NS.Printf("settings are now |cffffff00%s|r. Reloading to apply...",
+        shared and "shared across all your characters" or "per-character")
+    C_Timer.After(1, C_UI and C_UI.Reload or ReloadUI)
+end
+
 -- Park a note at wherever you're standing right now.
 --
 -- Now, at cast time -- NOT at loot time. By the time the loot window opens you've
@@ -299,21 +366,31 @@ ev:SetScript("OnEvent", function(_, event, ...)
         local loaded = ...
         if loaded ~= addonName then return end
 
-        EyesUpDB = EyesUpDB or {}
+        EyesUpDB       = EyesUpDB or {}         -- per-character file
+        EyesUpAccountDB = EyesUpAccountDB or {}  -- shared-across-all-characters file
 
         -- This addon used to be called NodeSight. If a player brought their old
         -- saved-variables file across (see the README), adopt it whole rather
-        -- than making them re-gather half a continent. Runs once: after this,
-        -- EyesUpDB has content and we never look back.
+        -- than making them re-gather half a continent. Runs once, into the
+        -- per-character store (that's where the old file landed).
         if not next(EyesUpDB) and type(_G.NodeSightDB) == "table" then
             EyesUpDB = _G.NodeSightDB
             NS.migrated = true
         end
 
-        applyDefaults(EyesUpDB, NS.defaults)
-        EyesUpDB.nodes = EyesUpDB.nodes or {}
-        NS.db = EyesUpDB
-        Data.nodes = EyesUpDB.nodes        -- these tables ARE the saved data now
+        -- WHICH store are we using?
+        --
+        -- The choice lives on the per-character file (EyesUpDB.useAccount), because
+        -- that file always exists and each character decides for itself. Default is
+        -- per-character -- exactly what every existing install already had, so no
+        -- one's settings move without them asking. Flip it in the options and we
+        -- copy your settings across and /reload onto the other store.
+        local db = EyesUpDB.useAccount and EyesUpAccountDB or EyesUpDB
+
+        applyDefaults(db, NS.defaults)
+        db.nodes = db.nodes or {}
+        NS.db = db
+        Data.nodes = db.nodes              -- these tables ARE the saved data now
 
         -- ---------------------------------------------------------------------
         -- One-time: the filter list changed what it identifies things BY.
@@ -333,15 +410,34 @@ ev:SetScript("OnEvent", function(_, event, ...)
         -- keys, so putting it there would hand every existing character the
         -- "already migrated" stamp and this would never run.
         -- ---------------------------------------------------------------------
-        if EyesUpDB.identityVersion ~= 3 then
+        if db.identityVersion ~= 3 then
             local had = false
             for _, t in ipairs(NS.NodeTypeOrder) do
-                if next(EyesUpDB.knownNodes[t] or {}) then had = true end
-                wipe(EyesUpDB.knownNodes[t])
-                wipe(EyesUpDB.nodeFilter[t])
+                if next(db.knownNodes[t] or {}) then had = true end
+                wipe(db.knownNodes[t])
+                wipe(db.nodeFilter[t])
             end
-            EyesUpDB.identityVersion = 3
+            db.identityVersion = 3
             NS.pruned = had
+        end
+
+        -- Backfill speciesItem from every node we've ever recorded.
+        --
+        -- The cue's icon in "item" mode wants the thing a node DROPS (the ore, not
+        -- a pickaxe). It gets that from db.speciesItem[type][speciesID]. But the
+        -- cue mostly shows LIVE soft-target nodes now, which never carry an item --
+        -- so unless speciesItem already knew that species, you got the generic
+        -- glyph. Every node in your database that resolved both its species and its
+        -- drop already holds the answer; sweep them in once at login so a herb you
+        -- picked last week teaches its icon to the live blip today.
+        db.speciesItem = db.speciesItem or {}
+        for _, zone in pairs(db.nodes or {}) do
+            for _, n in ipairs(zone) do
+                if n.id and n.item and n.type then
+                    local byType = db.speciesItem[n.type]
+                    if byType and byType[n.id] == nil then byType[n.id] = n.item end
+                end
+            end
         end
 
     elseif event == "PLAYER_LOGOUT" then

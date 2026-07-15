@@ -184,13 +184,11 @@ function Corner.Enable()
 
     if not follower then
         follower = CreateFrame("Frame")
-        local since = 0
-        follower:SetScript("OnUpdate", function(_, elapsed)
-            if not active then return end
-            since = since + elapsed
-            if since < 0.1 then return end    -- 10/sec is plenty for a map
-            since = 0
-            follow()
+        -- EVERY frame, not throttled. At 10/sec the player visibly drifted toward
+        -- the edge between updates while flying, then snapped back. The pan is a
+        -- cheap call, so just keep it pinned.
+        follower:SetScript("OnUpdate", function()
+            if active then follow() end
         end)
     end
     follower:Show()

@@ -332,6 +332,7 @@ NS.defaults = {
     cuePosY          = 150,
     cueShowArrow     = true,
     cueArrowScale    = 0.7,     -- arrow size as a fraction of the icon (was a hard 0.5)
+    cueShowName      = false,   -- a small name tag above the icon (off by default)
 
     -- How many things it'll mention at once (1-3).
     --
@@ -345,19 +346,18 @@ NS.defaults = {
 
     -- WHICH FACE THE CUE WEARS. One setting, two answers, and that's all there is.
     --
-    --   "item"   -- the game's own art. A Mycobloom looks like a Mycobloom, once
-    --              you've gathered one and we know what the species drops. Until
-    --              then, the built-in glyph for its type, tinted by its color.
-    --   "custom" -- your art, from textures/. One icon per type, every time. A herb
-    --              is a herb. Nothing changes as you play.
+    --   "item"       -- the thing the node GIVES: the ore, the herb, the fish. Once
+    --                  you've gathered one and we know the drop (the login backfill
+    --                  learns it from your history too). Falls back to the
+    --                  profession symbol until then.
+    --   "profession" -- always the profession symbol (pickaxe, sprig, ...). Never
+    --                  changes; tells you the KIND at a glance.
+    --   "custom"     -- your art, from textures/. One icon per type, every time.
     --
-    -- There was briefly a second switch (standInGlyphs) that used your art as the
-    -- fallback inside "item" mode. Two checkboxes that both read "use my icons" and
-    -- meant different things is not a setting, it's a riddle. One switch now.
-    --
-    -- See NS.CustomGlyph above for where the files go -- and for why a blank icon
-    -- is always a file problem and never a code problem.
-    iconStyle        = "item",  -- "item" | "custom"
+    -- Chosen via a dropdown on the Cue page. See Cue.applyIcon, and NS.CustomGlyph
+    -- above for where the "custom" files go (a blank icon there is always a file
+    -- problem -- missing, misnamed, wrong case, or not a power of two).
+    iconStyle        = "item",  -- "item" | "profession" | "custom"
 
     -- Icon presentation.
     cueSquareIcon    = true,    -- crop the stock bevel; make it a clean square
@@ -506,6 +506,12 @@ NS.defaults = {
     -- blown up over your character is nobody's idea of a heads-up display.
     hudHideInCity    = true,
 
+    -- Hover a blip and the game tells you what it is -- but that needs the mouse
+    -- ON, and a mouse-enabled minimap in the middle of your screen swallows clicks
+    -- over its whole circle (annoying while you're grabbing nodes). So it's off by
+    -- default; turn it on if you'd rather have the tooltips than the clean center.
+    hudTooltips      = false,
+
     -- While the HUD is up, let Eyes Up decide what your minimap tracks -- so the
     -- blips on screen are the gathering you ticked below and nothing else (no Track
     -- Humanoids, no quest markers). Snapshotted and restored when the HUD comes
@@ -513,10 +519,16 @@ NS.defaults = {
     -- tracking yourself.
     hudManageTracking = true,
 
-    -- ...and WHICH gathering to show, when the above is on. Each maps to a minimap
-    -- tracking type (Find Herbs, Find Minerals, Find Fish, Find Treasure). You only
-    -- see the ones your professions actually grant.
-    hudTrack = { herbs = true, minerals = true, fish = true, treasure = true },
+    -- ...and WHICH minimap tracking to show, per type, when the above is on.
+    --
+    -- Keyed by spellID (or name, for the handful of tracking types that aren't
+    -- spells -- Mailbox, Auctioneer, ...). A missing key means "use the default":
+    -- ON for gathering (herbs, minerals, lumber, fish, treasure), OFF for
+    -- everything else. So out of the box the HUD shows gathering and nothing more,
+    -- and while it's active these choices OVERRIDE whatever you've got ticked in
+    -- WoW's own tracking menu. See Hud.TrackWanted.
+    hudTrackList     = {},
+    hudTrackExpanded = false,   -- options: is the full (non-gathering) list unfolded
 
     hudSize          = 400,     -- pixels across
     hudX             = 0,       -- offset from screen center
