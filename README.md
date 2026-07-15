@@ -1,3 +1,5 @@
+Find it on Curseforge: https://www.curseforge.com/wow/addons/eyes-up/
+
 # Eyes Up
 
 *Watch the world, not the minimap.*
@@ -18,103 +20,99 @@ up.
 
 Drop the folder into your AddOns directory. It **must** be named `EyesUp`:
 
-```
-World of Warcraft/_retail_/Interface/AddOns/EyesUp
-```
+## The HUD — the main event
 
-WoW matches the folder name against `EyesUp.toc`. Call it anything else and the
-game quietly pretends the addon doesn't exist. Then restart the client.
+Turn on the **heads-up display** (in `/eu`, or `/eu hud on`) and your minimap
+moves to the middle of your screen, the map itself is masked away, and what's left
+is the tracking blips — herbs, ore, fish — floating over the actual world, rotated
+so **up is the way you're facing.** A blip above your character is a node straight
+ahead.
 
-That's it. It works out of the box.
+The one cost: there's only one minimap, so while the HUD is up, your corner map is
+gone. Tick **Map in the corner** and a real map (roads, your position) takes its
+place, so you don't lose your bearings. The HUD also folds away in cities — you're
+not gathering there, and towns are full of mailboxes and quest markers the game
+won't let us hide.
 
-## The one thing worth knowing
+Everything about it is on the options page: what to track (herbs / minerals / fish
+/ treasure), size, zoom, rotation, opacity — no digging.
 
-**WoW won't tell an addon where the herbs are.** There's no API for it. The
-minimap knows — those little yellow dots are real — but the game draws them
-itself and won't let addons read them.
+## The cue — the original, still here
 
-There is exactly one thing the game *will* tell us: what you could reach out and
-grab right now. That's what Eyes Up is built on.
+Prefer something lighter, or want it *as well* as the HUD? The **cue** is a small
+icon near the middle of your screen that fades in when a node you want is within
+reach, with an arrow at it, and fades to nothing when there isn't one. It doesn't
+touch your minimap, so you can run either, or both.
 
-So **if the cue lights up, the thing is really there.** No false alarms. The catch
-is reach — about 15–25 yards. It's a tap on the shoulder for the node you were
-about to ride past, not a radar.
+The cue is careful about what it claims:
 
-If you'd rather have more warning and accept that a lot of it will be wrong,
-there's a switch for that. See below.
+- **It doesn't lie.** By default it only fires for nodes the game *confirms* are
+  really there — so if it lights up, the thing is there. The catch is reach:
+  about 15–25 yards, because that's as far as the game will confirm a node.
+- **It shows the real item** once you've gathered one of that species; a generic
+  glyph (or your own art from `textures/`) until then.
+- **It shuts up about things you just took**, instead of spinning round to point
+  at the hole you're standing over.
+- **A quiet tick**, if you want one — off by default, and never for something it
+  isn't sure about.
 
-## What it does
+  ## Want more warning? (guesses)
 
-- **One icon, near the middle of your screen.** The nearest thing you actually
-  want, with an arrow pointing at it. Get close and the arrow gives up and the
-  icon pulses — *it's here, look down.*
-- **It gets out of the way.** Nothing nearby means nothing on screen. Not a faded
-  ghost of the thing you flew past — nothing.
-- **It doesn't lie.** It only fires for nodes the game confirms are actually
-  there, plus treasures (which the game shows us directly).
-- **It shows the real item.** Once you've gathered one of something, every one of
-  that species shows its actual icon from then on. Before that it uses the art in
-  `Textures/` — swap those files for your own if you like.
-- **It shuts up about things you just took.** Pick a herb and that spot goes quiet
-  for a few minutes, instead of the cue swinging round to point proudly at the
-  hole you're standing over.
-- **Filters that make sense.** By type, and by species — and species means the
-  thing you *see* ("Copper Vein"), not the thing it drops ("Copper Ore"). Every
-  node in the game is in the list, grouped by expansion.
-- **A quiet tick**, if you want one. Off by default. It says "hey" once and then
-  leaves you alone, and never for something it isn't sure about.
-
-## Want more warning?
-
-Tick **Show guesses** in the options (or `/eu guesses on`).
-
-Now it also points at places a node has been *before*, out to your full detection
-range.
+Tick **Show guesses** (or `/eu guesses on`) and the cue also points at places a
+node has *been* before, out to your full range.
 
 Be warned: **most of those won't be there.** A zone has thousands of spawn spots
-and only a handful are occupied at any moment. Guesses draw faint and never make
-a sound, so at least they look like guesses. But they're guesses.
+and only a handful are occupied at once. Guesses draw faint and never make a
+sound, so at least they look like guesses.
 
 This works far better with **GatherMate2_Data** installed (free, on CurseForge) —
-it's a big list of everywhere nodes have been seen, so guesses work even in a zone
+a big list of everywhere nodes have been seen, so guesses work even in a zone
 you've never farmed. Eyes Up reads it if it's there and shrugs if it isn't.
 Nothing is bundled, and nothing is required.
+
+## Filters
+
+Every gathering node in the game is in the filter list (on the **Cue & filters**
+page), organised as a tree: by **type** (Herbs, Mining, Lumber, Fishing,
+Treasure), and inside each, by **expansion**. Drill into *Herbs → Midnight* and
+untick the one weed you keep grabbing by accident. Species are named by what you
+*see* in the world ("Copper Vein"), not what they drop ("Copper Ore").
 
 ## One setting it changes for you
 
 Eyes Up turns on WoW's **soft targeting** when you log in, and puts your old
-setting back when you log out.
-
-It has to. That's the setting that lets an addon ask *"what could I grab right
-now?"*, and without it the cue can never fire at all. Turning the arc up also
-means it notices things behind you, which is usually the whole problem.
-
-If you'd rather manage your own settings: `/eu softtarget off`. Just know the cue
-will go quiet.
+setting back when you log out. It has to — that's the setting that lets the cue
+ask *"what could I grab right now?"*, and it's what lets the HUD's tracking do its
+thing. `/eu softtarget off` if you'd rather manage it yourself.
 
 ## Commands
 
+Almost everything lives in the options (`/eu`). The handy ones:
+
 | | |
 |---|---|
-| `/eu` | options |
+| `/eu` | open the options |
+| `/eu hud on\|off` | the heads-up display |
+| `/eu guesses on\|off` | also point at nodes that might not be there |
 | `/eu status` | why isn't it firing? |
-| `/eu guesses on\|off` | also point at things that might not be there |
 | `/eu toggle` | eyes up / eyes closed |
-| `/eu lock` / `/eu unlock` | drag the cue somewhere else, then pin it |
-| `/eu reset` | put it back where it was |
-| `/eu softtarget on\|off` | let it manage soft targeting (it needs this) |
+| `/eu lock` / `/eu unlock` | drag the cue, then pin it |
 
-`/eyesup` and `/ns` both work too.
+`/eyesup` and `/ns` both work too. `/eu` with no argument lists the rest.
 
 ## What it can't do
 
-- **It can't see far.** ~15–25 yards for herbs, ore and lumber. That's the game's
-  limit, not ours.
-- **A chair can hide a herb.** The game only ever tells us about *one* nearby
-  thing — the best one — so if a chest or a door or your own fishing bobber is
-  closer than the herb, we hear about that instead. Nothing to be done.
-- **Treasures are the exception.** Those come from the game's own map markers, so
-  we see them at full range and always know they're real.
+Two hard limits, both the game's, not ours:
+
+- **The cue can't see far.** ~15–25 yards for herbs, ore and lumber — that's as
+  far as the game will confirm a node is really there. (The *HUD* reaches your
+  full ~100-yard tracking range, because it's showing the game's own blips.)
+- **A chair can hide a herb** from the cue. The game only tells us about *one*
+  nearby thing — the best one — so a chest or a door or your own fishing bobber,
+  if it's closer, is what we hear about.
+
+Treasures are the exception to the first: they come from the game's own map
+markers, so the cue sees those at full range and always knows they're real.
 
 ## Under the hood
 
@@ -126,13 +124,16 @@ will go quiet.
 | `Seed.lua` | GatherMate's node list, if you have it (optional) |
 | `Live.lua` | the only thing that can say "yes, it's really there" |
 | `Vignettes.lua` | treasures — the game shows us these directly |
-| `Cue.lua` | the cue — the point of all this |
+| `Hud.lua` | the heads-up display: your minimap's blips, moved to your eye |
+| `Corner.lua` | a real map where the minimap used to be |
+| `Cue.lua` | the cue — an icon and an arrow near screen centre |
 | `Overlay.lua` | the old radar, still here if you want it (`/eu mode radar`) |
 | `Scan.lua` | the engine: one look around per tick |
-| `Options.lua` | the knobs |
+| `Options.lua` | the knobs (two pages: HUD, and Cue & filters) |
 | `Probe.lua` | diagnostics; delete it and nothing changes |
 | `Core.lua` | wakes everything up |
 
-`Scan` looks around once per tick and hands the answer to the renderer. Renderers
-paint; they do no distance maths and own no timers. Adding a new way to show the
-same information means writing a renderer, not touching the engine.
+The cue and radar share one engine: `Scan` looks around once per tick and hands
+the answer to whichever renderer is on. The HUD is different — it doesn't draw
+anything itself, it relocates the game's own minimap. Adding a new way to show
+what `Scan` finds means writing a renderer, not touching the engine.
