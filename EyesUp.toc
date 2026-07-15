@@ -24,6 +24,12 @@
 #   Live        SOURCE: the soft-interact target -- the ONLY thing that can tell us
 #               a node is really there. Needs Data and Seed (Seed is how it knows
 #               WHERE the thing it found is). This is the default cue.
+#   Hud         THE POINT: your minimap, moved to the middle of the screen with
+#               the terrain masked off, leaving only the game's own tracking
+#               blips. Owns no data and no timer -- it just relocates a frame.
+#   Corner      ...and what goes in the hole it left: Blizzard's Battlefield Map
+#               (a MapCanvas), parked where the minimap was and locked to you.
+#               Needs the tray Hud builds, so it loads after it.
 #   Vignettes   what we can actually SEE (treasures). Needs Data.
 #   Overlay     RENDERER: the radar. Opt-in now -- see NS.db.mode.
 #   Cue         RENDERER: the thing in the middle of your screen. The point.
@@ -40,6 +46,8 @@ Database.lua
 Seed.lua
 Live.lua
 Vignettes.lua
+Hud.lua
+Corner.lua
 Overlay.lua
 Cue.lua
 Scan.lua

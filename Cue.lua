@@ -415,7 +415,8 @@ local function renderSlot(s, entry, result, elapsed, main, offsetX)
         -- saying a number.
         local gap = ARROW_GAP_NEAR + (ARROW_GAP_FAR - ARROW_GAP_NEAR) * frac
         local r = outer + gap
-        s.arrow:SetSize(size * 0.5, size * 0.5)     -- square; see NS.ArrowTexture
+        local asz = size * (db.cueArrowScale or 0.7)
+        s.arrow:SetSize(asz, asz)                   -- square; see NS.ArrowTexture
         s.arrow:SetRotation(-relative)              -- the art points north at 0
         s.arrow:ClearAllPoints()
         s.arrow:SetPoint("CENTER", frame, "CENTER",

@@ -217,32 +217,24 @@ function Options.SyncLayout()
 end
 Options.SyncOverlay = Options.SyncLayout   -- the old name, kept for old callers
 
--- ---- the list of everything you've found ------------------------------------
+-- ---- the list of everything you can filter ----------------------------------
 --
--- Sorted into expansions, because after a few hundred hours the flat list is a
--- wall of herb names and finding the one you want to mute means reading all of
--- them. Fold the expansions you're not playing in and the problem goes away.
+-- Grouped into TYPES -- Herbs, Mining, Lumber, Fishing, Treasure -- because that's
+-- the axis you actually filter along ("stop telling me about fish"), and because a
+-- node's type is the one thing about it that is always known and can never be
+-- wrong. Fold the types you don't care about and the wall of names goes away.
 --
--- WHERE THE EXPANSION COMES FROM: a table. NS.Species, in Species.lua.
---
--- It used to come from the 15th return of C_Item.GetItemInfo, which worked only
--- because a node's id was then the id of the item it dropped. Once identity moved
--- to the SPECIES (Peacebloom is 401, Copper Vein is 201), that call started
--- handing back some unrelated Classic item that happened to own the number 401 --
--- and its expansion -- so every herb was filed under a random one.
---
--- The set of herbs in the game is finite and changes once a year. It doesn't need
--- deriving at runtime, and deriving it is what broke it. So it's written down, and
--- an expansion lookup is now a table read that cannot be wrong and cannot be nil-
--- until-cached.
+-- Every species comes from NS.Species (Species.lua) -- the whole game, written
+-- down -- so the list can never come up empty the way a "only what you've seen"
+-- list can. Within a type, newest expansion first (s.expac), then alphabetical.
 
 local headerPool, rowPool = {}, {}
 
-local OTHER = "OTHER"     -- a species the table doesn't know (yet)
-
-local function expansionName(key)
-    if key == OTHER then return "Other" end
-    return _G["EXPANSION_NAME" .. key] or ("Expansion " .. tostring(key))
+-- Expansion index -> display name, for the second level of the filter tree.
+local function expacName(e)
+    if e == nil or e < 0 then return "Other" end
+    if e == 0 then return "Classic" end
+    return _G["EXPANSION_NAME" .. e] or ("Expansion " .. tostring(e))
 end
 
 local function getHeader(content, i)
@@ -290,88 +282,81 @@ local function rebuildNodeList(list)
     for _, h in ipairs(headerPool) do h:Hide() end
     for _, r in ipairs(rowPool) do r:Hide() end
 
-    -- EVERY species in the game, bucketed by expansion.
-    --
-    -- It used to list only what you'd "discovered", and that made the list a
-    -- hostage to whatever data happened to be loaded that session -- wipe your
-    -- saved variables, or play without the seed data, and the list came up EMPTY,
-    -- with nothing to filter and no way to filter it. A filter list that can be
-    -- empty is a filter list that doesn't work.
-    --
-    -- Species.lua knows every herb, vein and log in the game. So the list does
-    -- too. All of them, always, whether you've seen one or not -- fold the
-    -- expansions you aren't playing and the length stops mattering.
-    local groups, keys = {}, {}
-    for _, nType in ipairs(NS.NodeTypeOrder) do
-        for id, s in pairs(NS.Species[nType] or {}) do
-            local key = s.expac or OTHER
-            local g = groups[key]
-            if not g then
-                g = {}
-                groups[key] = g
-                keys[#keys + 1] = key
-            end
-            g[#g + 1] = { type = nType, id = id, name = s.name }
-        end
-    end
-
-    -- Newest expansion first -- it's the one you're playing. "Other" always last.
-    table.sort(keys, function(a, b)
-        if a == OTHER then return false end
-        if b == OTHER then return true end
-        return a > b
-    end)
-
-    local newest = keys[1]
-
+    -- A TWO-LEVEL tree: TYPE (Herbs, Mining, ...) and inside each, EXPANSION.
+    -- Both fold, so you can drill "Herbs > Midnight" and see just those, and
+    -- filter along either axis. Everything comes from NS.Species (the whole game,
+    -- written down), so the list can never come up empty.
     local hIdx, rIdx, y = 0, 0, -4
 
-    for _, key in ipairs(keys) do
-        local entries = groups[key]
-        table.sort(entries, function(a, b) return (a.name or "") < (b.name or "") end)
-
-        -- Everything folds shut by default EXCEPT the expansion you're playing.
-        -- Four hundred rows unrolled is not a filter list, it's a phone book.
-        local collapsed = db.filterCollapsed[key]
-        if collapsed == nil then collapsed = (key ~= newest) end
-
+    -- A collapsible header at indent x with the fold caret already prepended.
+    local function header(text, x, collapsed, onToggle)
         hIdx = hIdx + 1
         local h = getHeader(list, hIdx)
         h:ClearAllPoints()
-        h:SetPoint("TOPLEFT", list, "TOPLEFT", 0, y)
-        h.text:SetText(("%s %s |cff888888(%d)|r"):format(
-            collapsed and "|cffffd100+|r" or "|cffffd100-|r",
-            expansionName(key), #entries))
-        h:SetScript("OnClick", function()
-            db.filterCollapsed[key] = not collapsed
-            rebuildNodeList(list)      -- redraw in place; cheap, and it feels instant
-        end)
+        h:SetPoint("TOPLEFT", list, "TOPLEFT", x, y)
+        h.text:SetText((collapsed and "|cffffd100+|r " or "|cffffd100-|r ") .. text)
+        h:SetScript("OnClick", onToggle)
         h:Show()
         y = y - 18
+    end
 
-        if not collapsed then
-            for _, e in ipairs(entries) do
-                rIdx = rIdx + 1
-                local row = getRow(list, rIdx)
-                row:ClearAllPoints()
-                row:SetPoint("TOPLEFT", list, "TOPLEFT", 0, y)
-                row.text:SetText(e.name or ("id " .. tostring(e.id)))
+    for _, nType in ipairs(NS.NodeTypeOrder) do
+        local species = NS.Species[nType]
+        if species and next(species) then
+            -- Bucket this type's species by expansion.
+            local byExpac, expacs, total = {}, {}, 0
+            for id, s in pairs(species) do
+                local e = s.expac or -1
+                local b = byExpac[e]
+                if not b then b = {}; byExpac[e] = b; expacs[#expacs + 1] = e end
+                b[#b + 1] = { id = id, name = s.name }
+                total = total + 1
+            end
+            table.sort(expacs, function(a, b) return a > b end)   -- newest first
 
-                local c = NS.TypeColor(e.type)
-                row.dot:SetColorTexture(c[1], c[2], c[3], 1)
+            local tKey = nType
+            local tCollapsed = db.filterCollapsed[tKey]
+            if tCollapsed == nil then tCollapsed = true end
 
-                -- Checked = "tell me about these". Unchecked = "I know. I don't care."
-                local filtered = db.nodeFilter[e.type][e.id] == false
-                row.cb:SetChecked(not filtered)
-                row.cb:SetScript("OnClick", function(self)
-                    if self:GetChecked() then
-                        db.nodeFilter[e.type][e.id] = nil
-                    else
-                        db.nodeFilter[e.type][e.id] = false
+            local c = NS.TypeColor(nType)
+            header(("|cff%02x%02x%02x%s|r |cff888888(%d)|r"):format(
+                math.floor(c[1] * 255), math.floor(c[2] * 255), math.floor(c[3] * 255),
+                NS.NodeTypeLabel[nType] or nType, total),
+                0, tCollapsed,
+                function() db.filterCollapsed[tKey] = not tCollapsed; rebuildNodeList(list) end)
+
+            if not tCollapsed then
+                for _, e in ipairs(expacs) do
+                    local entries = byExpac[e]
+                    table.sort(entries, function(a, b) return (a.name or "") < (b.name or "") end)
+
+                    local eKey = nType .. ":" .. e
+                    local eCollapsed = db.filterCollapsed[eKey]
+                    if eCollapsed == nil then eCollapsed = true end
+
+                    header(("%s |cff888888(%d)|r"):format(expacName(e), #entries),
+                        14, eCollapsed,
+                        function() db.filterCollapsed[eKey] = not eCollapsed; rebuildNodeList(list) end)
+
+                    if not eCollapsed then
+                        for _, sp in ipairs(entries) do
+                            rIdx = rIdx + 1
+                            local row = getRow(list, rIdx)
+                            row:ClearAllPoints()
+                            row:SetPoint("TOPLEFT", list, "TOPLEFT", 26, y)
+                            row.text:SetText(sp.name or ("id " .. tostring(sp.id)))
+                            row.dot:SetColorTexture(c[1], c[2], c[3], 1)
+
+                            -- Checked = "tell me". Unchecked = "I know, don't care."
+                            row.cb:SetChecked(db.nodeFilter[nType][sp.id] ~= false)
+                            row.cb:SetScript("OnClick", function(self)
+                                db.nodeFilter[nType][sp.id] = self:GetChecked() and nil or false
+                            end)
+                            row:Show()
+                            y = y - 20
+                        end
                     end
-                end)
-                row:Show()
-                y = y - 20
+                end
             end
         end
     end
@@ -388,34 +373,35 @@ end
 local CONTENT_W  = 660    -- the width the three columns were drawn for
 local SLIDER_LEAD = 14    -- headroom for a slider's title, which sits above its frame
 
-local function buildPanel()
-    if panel then return panel end
+-- Every control across BOTH pages lives here, so Refresh can repaint them all in
+-- one pass no matter which page they're on.
+local controls = {}
 
-    panel = CreateFrame("Frame", "EyesUpOptionsPanel", UIParent)
-    panel:SetSize(CONTENT_W, 460)   -- a placeholder; Settings stretches us to its canvas
-    panel:Hide()
-    panel.name = addonName    -- a legacy field some containers still read
+-- ---------------------------------------------------------------------------
+-- One scrollable page, built by hand.
+--
+-- Settings hands us a canvas of ITS choosing, and our columns are often taller
+-- than it -- so each page is a scroll child of a height we compute, and the canvas
+-- is a window onto it. The scrollbar is a plain Slider with a colored thumb: a
+-- dozen lines that no patch can break by rearranging a template.
+--
+-- Returns the panel and its content frame. Each panel carries its own UpdateScroll.
+-- ---------------------------------------------------------------------------
+local function makeScrollPage(frameName, subtitleText)
+    local p = CreateFrame("Frame", frameName, UIParent)
+    p:SetSize(CONTENT_W, 460)   -- placeholder; Settings stretches us to its canvas
+    p:Hide()
+    p.name = frameName
 
-    -- ---- the page scrolls ---------------------------------------------------
-    --
-    -- Settings hands us a canvas of ITS choosing, not ours, and the middle column
-    -- is taller than that canvas on most resolutions. Laid out flat, the bottom
-    -- sliders simply fell off the end of the page with no way to reach them. So
-    -- everything below lives on a scroll child of a fixed height we compute, and
-    -- the canvas becomes a window onto it.
-    --
-    -- The scrollbar is hand-built for the same reason everything else here is:
-    -- it's a plain Slider with a colored thumb, which is a dozen lines and can't
-    -- be broken by a patch rearranging a template.
-    local scroll = CreateFrame("ScrollFrame", nil, panel)
+    local scroll = CreateFrame("ScrollFrame", nil, p)
     scroll:SetPoint("TOPLEFT", 0, 0)
     scroll:SetPoint("BOTTOMRIGHT", -16, 0)
 
-    local bar = CreateFrame("Slider", nil, panel)
+    local bar = CreateFrame("Slider", nil, p)
     bar:SetOrientation("VERTICAL")
     bar:SetWidth(8)
-    bar:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -4, -8)
-    bar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 8)
+    bar:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, -8)
+    bar:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -4, 8)
     bar:SetMinMaxValues(0, 0)
     bar:SetValueStep(1)
     bar:SetObeyStepOnDrag(true)
@@ -435,25 +421,19 @@ local function buildPanel()
     scroll:SetScrollChild(content)
 
     bar:SetScript("OnValueChanged", function(_, v) scroll:SetVerticalScroll(v) end)
-
-    -- Wheel over anything on the page scrolls the page. The Slider clamps the
-    -- value for us, so there's no range check to get wrong here.
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(_, delta)
         bar:SetValue(bar:GetValue() - delta * 40)
     end)
 
-    -- Called whenever the canvas resizes or the filter list grows or shrinks.
-    -- Scroll offset is re-clamped by SetValue, so folding an expansion while
-    -- scrolled to the bottom lands you at the new bottom rather than in blank space.
-    function Options.UpdateScroll()
+    function p.UpdateScroll()
         local range = math.max(0, content:GetHeight() - scroll:GetHeight())
         bar:SetMinMaxValues(0, range)
         bar:SetShown(range > 0)
         bar:SetValue(math.min(bar:GetValue(), range))
         scroll:SetVerticalScroll(bar:GetValue())
     end
-    scroll:SetScript("OnSizeChanged", function() Options.UpdateScroll() end)
+    scroll:SetScript("OnSizeChanged", function() p.UpdateScroll() end)
 
     local title = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
@@ -461,44 +441,204 @@ local function buildPanel()
 
     local subtitle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-    subtitle:SetText("Watch the world, not the minimap.  |cff888888/eu demo|r to see it work.")
+    subtitle:SetText(subtitleText or "Watch the world, not the minimap.")
 
-    local controls = {}
+    p.content = content
+    return p, content
+end
 
-    -- ---- column 1: what to show ---------------------------------------------
+-- ===========================================================================
+-- PAGE 1: the heads-up display. The flagship, so it's the page you land on.
+-- ===========================================================================
+local function buildHudPage()
+    local p, content = makeScrollPage("EyesUpOptionsHUD",
+        "Your minimap's own tracking blips, moved to the middle of the screen.")
+
+    -- Two columns: what the HUD DOES (left), and what it TRACKS plus its dials
+    -- (right). Every knob lives here now -- nothing hides behind a slash command.
+
+    -- ---- left column: behaviour, each with a line of why ----
     local L = CreateFrame("Frame", nil, content)
     L:SetPoint("TOPLEFT", 16, -60)
+    L:SetWidth(300)
+
+    local ly = 0
+    local function placeL(c, h)
+        if c.isSlider then ly = ly - SLIDER_LEAD end
+        c:SetPoint("TOPLEFT", L, "TOPLEFT", 0, ly)
+        ly = ly - (h or 26)
+        controls[#controls + 1] = c
+    end
+    local function noteL(text, gap, indent)
+        local fs = L:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        fs:SetPoint("TOPLEFT", L, "TOPLEFT", indent or 6, ly)
+        fs:SetWidth(290 - (indent or 6))
+        fs:SetJustifyH("LEFT")
+        fs:SetText(text)
+        ly = ly - (gap or 30)
+    end
+
+    placeL(makeCheck(L, "Blips in the middle of my screen",
+        function() return NS.db.hudEnabled end,
+        function(v) NS.Hud.SetEnabled(v) end))
+    noteL("The game's own tracking blips, live and exact, where you're looking. "
+        .. "Costs the corner minimap while it's up (a map goes there instead).", 44)
+
+    placeL(makeCheck(L, "Rotate to my facing", function() return NS.db.hudRotate end,
+        function(v) NS.db.hudRotate = v; NS.Hud.ApplyLook() end))
+    noteL("Up becomes the way you're facing, so a blip above centre is straight "
+        .. "ahead -- no compass to read in your head.", 34)
+
+    placeL(makeCheck(L, "Step aside in cities", function() return NS.db.hudHideInCity end,
+        function(v) NS.db.hudHideInCity = v; NS.Hud.Refresh() end))
+    noteL("Cities and inns are full of mailboxes and quest markers the game won't "
+        .. "let us hide -- and you're not gathering there anyway. So the HUD folds "
+        .. "away while you're resting and comes back when you ride out.", 54)
+
+    placeL(makeCheck(L, "Map in the corner", function() return NS.db.cornerMap end,
+        function(v)
+            NS.db.cornerMap = v
+            if NS.Hud.IsActive() then
+                if v then NS.Corner.Enable() else NS.Corner.Disable() end
+            end
+        end))
+    noteL("Puts a real map -- roads, your position -- where the minimap used to be, "
+        .. "since the blips have taken its old spot.", 40)
+
+    -- ---- right column: what to track, and the dials ----
+    local R = CreateFrame("Frame", nil, content)
+    R:SetPoint("TOPLEFT", 336, -60)
+    R:SetWidth(300)
+
+    local ry = 0
+    local function placeR(c, h, indent)
+        if c.isSlider then ry = ry - SLIDER_LEAD end
+        c:SetPoint("TOPLEFT", R, "TOPLEFT", indent or 0, ry)
+        ry = ry - (h or 26)
+        controls[#controls + 1] = c
+    end
+    local function noteR(text, gap)
+        local fs = R:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        fs:SetPoint("TOPLEFT", R, "TOPLEFT", 6, ry)
+        fs:SetWidth(284)
+        fs:SetJustifyH("LEFT")
+        fs:SetText(text)
+        ry = ry - (gap or 30)
+    end
+    local function headerR(text)
+        local fs = R:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("TOPLEFT", R, "TOPLEFT", 0, ry)
+        fs:SetText(text)
+        ry = ry - 18
+    end
+
+    headerR("What to track")
+    placeR(makeCheck(R, "Let Eyes Up choose (hide the rest)",
+        function() return NS.db.hudManageTracking end,
+        function(v)
+            NS.db.hudManageTracking = v
+            if NS.Hud.IsActive() then NS.Hud.Disable(); NS.Hud.Enable() end
+        end))
+    noteR("On: show only the ticks below, nothing else. Off: leave your minimap "
+        .. "tracking exactly as you set it.", 36)
+
+    for _, t in ipairs({
+        { key = "herbs",    label = "Herbs" },
+        { key = "minerals", label = "Minerals" },
+        { key = "fish",     label = "Fish" },
+        { key = "treasure", label = "Treasure" },
+    }) do
+        local key = t.key
+        placeR(makeCheck(R, t.label,
+            function() return not NS.db.hudTrack or NS.db.hudTrack[key] ~= false end,
+            function(v)
+                NS.db.hudTrack = NS.db.hudTrack or {}
+                NS.db.hudTrack[key] = v
+                NS.Hud.ApplyLook()
+            end), 24, 16)
+    end
+    noteR("You only see the ones your professions actually grant.", 30)
+
+    headerR("Size & feel")
+    placeR(makeSlider(R, "HUD size (px)", 150, 600, 10,
+        function() return NS.db.hudSize end,
+        function(v) NS.db.hudSize = v; NS.Hud.ApplyLook() end, "%.0f"), 44)
+    placeR(makeSlider(R, "Zoom (0 = widest, furthest)", 0, 6, 1,
+        function() return NS.db.hudZoom end,
+        function(v) NS.db.hudZoom = v; NS.Hud.ApplyLook() end, "%.0f"), 44)
+    placeR(makeSlider(R, "Blip opacity", 0.2, 1, 0.05,
+        function() return NS.db.hudAlpha end,
+        function(v) NS.db.hudAlpha = v; NS.Hud.ApplyLook() end), 44)
+    placeR(makeSlider(R, "Range ring opacity", 0, 1, 0.05,
+        function() return NS.db.hudRingAlpha end,
+        function(v) NS.db.hudRingAlpha = v; NS.Hud.ApplyLook() end), 44)
+    placeR(makeSlider(R, "Corner map zoom", 0.2, 1, 0.05,
+        function() return NS.db.cornerZoom end,
+        function(v) NS.db.cornerZoom = v; if NS.Corner then NS.Corner.ApplyLook() end end), 44)
+
+    placeR(makeCheck(R, "Soft edge (fade at the rim)",
+        function() return NS.db.hudMask == "vignette" end,
+        function(v) NS.db.hudMask = v and "vignette" or "clear"; NS.Hud.ApplyLook() end))
+
+    L:SetHeight(math.max(1, -ly))
+    R:SetHeight(math.max(1, -ry))
+    content:SetHeight(math.max(200, 80 + math.max(-ly, -ry)))
+
+    -- Repaint this page's controls to current state whenever Settings shows it.
+    p:SetScript("OnShow", function() Options.Refresh() end)
+    p.OnRefresh = function() Options.Refresh() end
+    p.OnCommit  = function() end
+    p.OnDefault = function() end
+
+    return p
+end
+
+-- ===========================================================================
+-- PAGE 2: the cue, node types, and filters. A subcategory under the HUD page.
+-- ===========================================================================
+local function buildCuePage()
+    local p, content = makeScrollPage("EyesUpOptionsCue",
+        "The center-screen icon, node types, and the filter list.")
+
+    -- What IS the cue, and why does it exist? A short paragraph, because someone
+    -- landing here from the HUD page won't know.
+    local intro = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    intro:SetPoint("TOPLEFT", 16, -54)
+    intro:SetWidth(624)
+    intro:SetJustifyH("LEFT")
+    intro:SetText(
+        "The |cffffd100cue|r is a small icon near the middle of your screen that "
+        .. "fades in when a node you care about is within reach, with an arrow at "
+        .. "it -- so you keep your eyes on the world, not the minimap. It's the "
+        .. "original Eyes Up, and unlike the HUD it doesn't touch your minimap, so "
+        .. "you can run either, or both. It reaches only as far as the game will "
+        .. "confirm a node is really there (~15-25 yards) unless you turn on "
+        .. "guesses.\n\n"
+        .. "Below: what it's allowed to mention, how it looks, and -- in the filter "
+        .. "list -- exactly which species should bother you.")
+
+    -- ---- column 1: the cue and its sound ------------------------------------
+    local L = CreateFrame("Frame", nil, content)
+    L:SetPoint("TOPLEFT", 16, -128)
     L:SetWidth(220)
 
     local y = 0
-    local function place(c, h, group)
+    local function place(c, h)
         if c.isSlider then y = y - SLIDER_LEAD end
         c:SetPoint("TOPLEFT", L, "TOPLEFT", 0, y)
         y = y - (h or 26)
         controls[#controls + 1] = c
-        if group then group[#group + 1] = c end
     end
 
     local displayLabel = L:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     displayLabel:SetPoint("TOPLEFT", L, "TOPLEFT", 0, y)
-    displayLabel:SetText("Display")
+    displayLabel:SetText("The cue")
     y = y - 20
 
-    -- ---------------------------------------------------------------------
-    -- The one setting that decides what this addon IS.
-    --
-    -- This used to be the cue/radar/both switch. The radar is gone from here --
-    -- it was a choice between two ways of DRAWING, which nobody needed to make,
-    -- while the choice that actually matters wasn't on the page at all.
-    --
-    -- That choice is whether the addon is allowed to tell you about things it
-    -- isn't sure are there. Off, and every cue is real. On, and you get much more
-    -- warning, most of which is wrong. There is no third answer -- that's the
-    -- shape of the game's API, not a design we picked. See Live.lua.
-    --
-    -- (The radar still exists: /eu mode radar. It just isn't a decision worth
-    -- putting in front of someone.)
-    -- ---------------------------------------------------------------------
+    -- The one setting that decides what the CUE is: may it point at things it
+    -- isn't sure are there? Off, every cue is real (but reaches ~15-25yd). On, you
+    -- get more warning, most of it wrong (drawn faint, never a sound). No third
+    -- answer -- that's the shape of the API, not a choice. See Live.lua.
     place(makeCheck(L, "Show guesses",
         function() return NS.db.showGuesses end,
         function(v) NS.db.showGuesses = v end))
@@ -562,7 +702,7 @@ local function buildPanel()
 
     -- ---- column 2: what it looks like ---------------------------------------
     local M = CreateFrame("Frame", nil, content)
-    M:SetPoint("TOPLEFT", 250, -60)
+    M:SetPoint("TOPLEFT", 250, -128)
     M:SetWidth(200)
 
     local my = 0
@@ -629,6 +769,9 @@ local function buildPanel()
     placeM(makeSlider(M, "Cue size (px)", 20, 80, 2,
         function() return NS.db.cueSize end,
         function(v) NS.db.cueSize = v end, "%.0f"), 44, cueOnly)
+    placeM(makeSlider(M, "Arrow size", 0.3, 1.2, 0.05,
+        function() return NS.db.cueArrowScale end,
+        function(v) NS.db.cueArrowScale = v end), 44, cueOnly)
     placeM(makeSlider(M, "Border thickness", 0, 6, 1,
         function() return NS.db.cueBorderSize end,
         function(v) NS.db.cueBorderSize = v end, "%.0fpx"), 44, cueOnly)
@@ -655,8 +798,6 @@ local function buildPanel()
         function() return NS.db.unconfirmedAlpha end,
         function(v) NS.db.unconfirmedAlpha = v end), 44)
 
-    Options.controls = controls
-
     -- The columns are the only things that know how tall they ended up, so they
     -- say so here rather than us guessing a page height and getting it wrong the
     -- next time a slider is added.
@@ -669,31 +810,34 @@ local function buildPanel()
 
     -- ---- column 3: the things you've found ----------------------------------
     local Rlabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    Rlabel:SetPoint("TOPLEFT", 470, -62)
+    Rlabel:SetPoint("TOPLEFT", 470, -130)
     Rlabel:SetText("Node filters")
 
     local list = CreateFrame("Frame", nil, content)
-    list:SetPoint("TOPLEFT", 470, -80)
+    list:SetPoint("TOPLEFT", 470, -148)
     list:SetSize(170, 1)      -- rebuildNodeList grows it
     Options.list = list
 
-    -- The page is as tall as its tallest column. The list moves, so this is
-    -- recomputed on every rebuild rather than measured once.
-    local staticH = math.max(60 + (-y) + 34, 60 + (-my))
+    -- The filter list lives on THIS page, so its scroll bookkeeping points here.
+    -- The page is as tall as its tallest column; the list moves, so recompute on
+    -- every rebuild rather than measuring once. (128 = where the columns start,
+    -- below the title, subtitle and the intro paragraph.)
+    local COL_TOP = 128
+    local staticH = math.max(COL_TOP + (-y) + 34, COL_TOP + (-my))
     function Options.UpdateHeight()
-        local h = math.max(staticH, 80 + list:GetHeight())
+        local h = math.max(staticH, COL_TOP + 20 + list:GetHeight())
         content:SetHeight(h + 20)
-        Options.UpdateScroll()
+        p.UpdateScroll()
     end
 
     -- Repaint whenever Settings shows us. We write every setting through the
     -- moment it's touched, so commit and default have nothing left to do.
-    panel:SetScript("OnShow", function() Options.Refresh() end)
-    panel.OnRefresh = function() Options.Refresh() end
-    panel.OnCommit  = function() end
-    panel.OnDefault = function() end
+    p:SetScript("OnShow", function() Options.Refresh() end)
+    p.OnRefresh = function() Options.Refresh() end
+    p.OnCommit  = function() end
+    p.OnDefault = function() end
 
-    return panel
+    return p
 end
 
 -- ---- getting listed in the Settings menu ------------------------------------
@@ -703,7 +847,10 @@ end
 function Options.Init()
     if NS.settingsCategory then return end
 
-    local p = buildPanel()
+    -- Two pages. Build the cue page FIRST -- it owns Options.list and
+    -- Options.UpdateHeight, which Refresh needs whichever page is showing.
+    local cuePage = buildCuePage()
+    local hudPage = buildHudPage()
 
     if not (Settings and Settings.RegisterCanvasLayoutCategory
             and Settings.RegisterAddOnCategory) then
@@ -714,8 +861,15 @@ function Options.Init()
         return
     end
 
-    local category = Settings.RegisterCanvasLayoutCategory(p, "Eyes Up")
+    -- The HUD is the flagship, so it's the page you land on. The cue and its
+    -- filters hang off it as a subcategory -- one click away, clearly labelled,
+    -- and no longer jumbled together with the HUD settings on one confusing page.
+    local category = Settings.RegisterCanvasLayoutCategory(hudPage, "Eyes Up")
     Settings.RegisterAddOnCategory(category)
+
+    if Settings.RegisterCanvasLayoutSubcategory then
+        Settings.RegisterCanvasLayoutSubcategory(category, cuePage, "Cue & filters")
+    end
 
     NS.settingsCategory   = category
     -- 12.0 stopped letting us set category.ID ourselves, so read it back.
@@ -744,16 +898,11 @@ end
 Options.Toggle = Options.Open
 
 function Options.Refresh()
-    if not panel or not NS.db then return end
-    for _, c in ipairs(Options.controls or {}) do
+    if not NS.db then return end
+    -- One shared list holds every control across both pages, so this repaints them
+    -- all -- whichever page happens to be open.
+    for _, c in ipairs(controls) do
         if c.Refresh then c.Refresh() end
     end
-
-    -- There used to be mode-based greying here -- radar controls dimmed in cue
-    -- mode and vice versa. The radar isn't on this page any more, so every control
-    -- that remains applies to the only thing we draw, and nothing needs dimming.
-    -- (The `cueOnly` group is kept so the sliders still get their SLIDER_LEAD
-    -- headroom from the layout code; it just no longer means "sometimes off".)
-
     rebuildNodeList(Options.list)
 end

@@ -331,6 +331,7 @@ NS.defaults = {
     cuePosX          = 0,
     cuePosY          = 150,
     cueShowArrow     = true,
+    cueArrowScale    = 0.7,     -- arrow size as a fraction of the icon (was a hard 0.5)
 
     -- How many things it'll mention at once (1-3).
     --
@@ -476,6 +477,96 @@ NS.defaults = {
     -- Learning as you go.
     recordGathers    = true,    -- remember nodes as you gather them
     dedupeYards      = 15,      -- two points this close are the same node, really
+
+    -- -------------------------------------------------------------------------
+    -- THE HEADS-UP DISPLAY.
+    --
+    -- Your minimap, moved to the middle of your screen with the terrain masked
+    -- away -- leaving nothing but the tracking blips, hanging over the world where
+    -- you're actually looking.
+    --
+    -- These are not our markers. They're the game's: live, complete, accurate to
+    -- the yard, at the full range of your tracking (about 100 yards). Everything
+    -- else in this addon is a workaround for not being able to read them. This
+    -- doesn't read them. It just puts them where they belong.
+    --
+    -- It costs you the minimap in your corner -- there is only one Minimap object
+    -- in the game and this IS it. That's a real trade, which is why it's off until
+    -- you ask. Requires Find Herbs / Find Minerals etc. to be on, because these
+    -- are literally those blips.
+    -- -------------------------------------------------------------------------
+    hudEnabled       = false,
+
+    -- Stand the HUD down in cities and inns.
+    --
+    -- The town POIs -- mail, inns, quests, vendors -- are engine-drawn, the same
+    -- layer as the gathering blips, so we can't hide them without hiding the herbs
+    -- too. But you don't gather in town, so the HUD simply steps aside while you're
+    -- resting and comes back when you ride out. On by default because a city minimap
+    -- blown up over your character is nobody's idea of a heads-up display.
+    hudHideInCity    = true,
+
+    -- While the HUD is up, let Eyes Up decide what your minimap tracks -- so the
+    -- blips on screen are the gathering you ticked below and nothing else (no Track
+    -- Humanoids, no quest markers). Snapshotted and restored when the HUD comes
+    -- down; we're borrowing your tracking, not resetting it. Turn this off to manage
+    -- tracking yourself.
+    hudManageTracking = true,
+
+    -- ...and WHICH gathering to show, when the above is on. Each maps to a minimap
+    -- tracking type (Find Herbs, Find Minerals, Find Fish, Find Treasure). You only
+    -- see the ones your professions actually grant.
+    hudTrack = { herbs = true, minerals = true, fish = true, treasure = true },
+
+    hudSize          = 400,     -- pixels across
+    hudX             = 0,       -- offset from screen center
+    hudY             = 0,
+    hudAlpha         = 1.0,     -- the BLIPS' opacity; the map behind them is gone
+    hudZoom          = 0,       -- 0 = widest = furthest sight. Zoom IS range.
+    hudMask          = "clear", -- "clear" (no map at all) | "vignette" (soft edge)
+
+    -- UP IS THE WAY YOU'RE FACING. This is what makes it a HUD rather than a map.
+    --
+    -- Blizzard's `rotateMinimap` CVar turns the map -- and every blip on it -- with
+    -- you, so a blip above center is a herb in front of you. No bearing to read, no
+    -- rotating it in your head. Off, and it's a compass rose you have to translate,
+    -- which is exactly the work this addon exists to save you.
+    hudRotate        = true,
+
+    -- Keep the border, the tracking button, the mail icon, the clock and your addon
+    -- buttons where they've always been. Only the MAP moves. Off takes the whole
+    -- corner away.
+    hudKeepCorner    = true,
+
+    -- (There's no player-arrow setting. 12.0 removed SetPlayerTexture and the arrow
+    -- is engine-drawn, so no addon can hide it. See the note in Hud.ApplyLook.)
+
+    -- A real map in the hole where the minimap used to be.
+    --
+    -- Moving the minimap to your eye costs you the minimap -- the roads, the quest
+    -- pins, the party dots, the fog, everything you'd ever actually glance at a
+    -- corner map FOR. So we borrow Blizzard's Battlefield Map (which is a MapCanvas
+    -- with all of that already wired up), park it where the minimap was, and lock it
+    -- to you. See Corner.lua.
+    --
+    -- It cannot show gathering blips -- nothing but the minimap can, which is the
+    -- reason this addon exists. That's why the two halves complement rather than
+    -- overlap: the HUD is what's gatherable, the corner is where you are.
+    cornerMap        = true,
+    cornerZoom       = 1.0,     -- multiplier on the canvas's max zoom
+    cornerAlpha      = 1.0,
+
+    -- The compass ring.
+    --
+    -- Blizzard draws it when the minimap rotates, so you can still find north. On a
+    -- minimap that's sensible. On a HUD it's a large metal circle across the middle
+    -- of your screen, so it's off.
+    --
+    -- But it isn't only decoration -- it's the EDGE OF YOUR RANGE, drawn exactly.
+    -- A blip on the rim is a hundred yards away. Turn it up a little (0.15-0.3) and
+    -- it stops being furniture and starts being information.
+    hudRingAlpha     = 0,             -- 0 = gone. 1 = Blizzard's, at full strength.
+    hudRingColor     = { 1, 1, 1 },   -- tint it; the art is greyscale so it takes color well
 
     -- -------------------------------------------------------------------------
     -- THE BIG ONE: do you want to be told about things that might not be there?

@@ -352,6 +352,14 @@ ev:SetScript("OnEvent", function(_, event, ...)
         NS.Cue.Create()
         applyLayouts()
         NS.Live.Enable()                   -- soft targeting on, or nothing is ever confirmed
+
+        -- The minimap isn't ours until Blizzard has finished arranging it, and it
+        -- arranges it during PLAYER_LOGIN. Take it a moment later. Refresh (not
+        -- Enable) so a login inside a city correctly stays stood-down.
+        if NS.db.hudEnabled then
+            C_Timer.After(0.5, function() NS.Hud.Refresh() end)
+        end
+
         NS.Scan.Start()                    -- the heartbeat; needs both renderers built
         NS.Options.Init()                  -- get listed in Settings before anyone looks
 
@@ -570,6 +578,108 @@ SlashCmdList.EYESUP = function(msg)
             end
         end
 
+    elseif cmd == "hud" then
+        -- The real thing. Your minimap's tracking blips, in the middle of your
+        -- screen, with the map itself masked away.
+        if arg == "off" then
+            NS.Hud.SetEnabled(false)
+            NS.Print("minimap put back in its corner.")
+        elseif arg == "on" or arg == "" then
+            NS.Hud.SetEnabled(true)
+            local r = NS.Hud.RangeYards()
+            NS.Print("|cff66ff66eyes up.|r Your tracking blips are now in front of you.")
+            NS.Printf("  seeing |cff66ff66%s yards|r in every direction -- the game's own markers,",
+                r and math.floor(r) or "?")
+            NS.Print("  live and exact. Nothing here is a guess.")
+            NS.Print("  |cffffcc00Your corner minimap is gone while this is on.|r |cffffff00/eu hud off|r brings it back.")
+            if NS.db.hudHideInCity then
+                NS.Print("  (It steps aside in cities -- town's not for gathering. |cffffff00/eu hud city off|r to keep it.)")
+            end
+            NS.Print("  Needs Find Herbs / Find Minerals ticked -- these ARE those blips.")
+        elseif arg:match("^%d+$") then
+            NS.db.hudSize = tonumber(arg)
+            NS.Hud.ApplyLook()
+            NS.Printf("hud size: %d px", NS.db.hudSize)
+
+        elseif arg == "rotate" or arg == "rotate on" or arg == "rotate off" then
+            if arg ~= "rotate" then NS.db.hudRotate = (arg == "rotate on") end
+            NS.Hud.ApplyLook()
+            NS.Printf("rotate: %s", NS.db.hudRotate
+                and "|cff66ff66on|r — up is the way you're facing"
+                or  "off — up is north, and you have to do the maths")
+
+        elseif arg == "corner on" or arg == "corner off" then
+            NS.db.hudKeepCorner = (arg == "corner on")
+            if NS.Hud.IsActive() then NS.Hud.Disable(); NS.Hud.Enable() end
+            NS.Printf("corner: %s", NS.db.hudKeepCorner
+                and "kept (border, tracking, mail, clock, addon buttons)"
+                or  "hidden entirely")
+
+        elseif arg == "track on" or arg == "track off" then
+            NS.db.hudManageTracking = (arg == "track on")
+            if NS.Hud.IsActive() then NS.Hud.Disable(); NS.Hud.Enable() end
+            NS.Printf("gathering-only tracking: %s", NS.db.hudManageTracking
+                and "|cff66ff66on|r — only herbs/ore/timber/fish while the HUD is up"
+                or  "off — the HUD shows whatever you're tracking")
+
+        elseif arg:match("^ring") then
+            -- The compass ring: gone, or faded to whatever you can live with.
+            local v = arg:match("^ring%s+(%S+)$")
+            if v == "off" then
+                NS.db.hudRingAlpha = 0
+            elseif v == "on" then
+                NS.db.hudRingAlpha = 0.25
+            elseif tonumber(v) then
+                local n = tonumber(v)
+                if n > 1 then n = n / 100 end          -- accept "25" as 25%
+                NS.db.hudRingAlpha = math.max(0, math.min(1, n))
+            else
+                NS.Print("usage: |cffffff00/eu hud ring off|on|<0-100>|r")
+                NS.Print("  It's not just decoration -- the ring IS the edge of your range.")
+                NS.Print("  A blip on the rim is 100 yards away. Try |cffffff00/eu hud ring 20|r.")
+                return
+            end
+            NS.Hud.ApplyLook()
+            NS.Printf("compass ring: %s",
+                NS.db.hudRingAlpha <= 0 and "|cff888888hidden|r"
+                or ("|cff66ff66%d%%|r"):format(NS.db.hudRingAlpha * 100))
+
+        elseif arg == "city on" or arg == "city off" then
+            NS.db.hudHideInCity = (arg == "city on")
+            NS.Hud.Refresh()
+            NS.Printf("hud in cities: %s", NS.db.hudHideInCity
+                and "|cff66ff66steps aside|r (town's not for gathering)"
+                or  "stays up (POI clutter and all)")
+
+        elseif arg == "map on" or arg == "map off" then
+            NS.db.cornerMap = (arg == "map on")
+            if NS.Hud.IsActive() then
+                if NS.db.cornerMap then NS.Corner.Enable() else NS.Corner.Disable() end
+            end
+            NS.Printf("corner map: %s", NS.db.cornerMap
+                and "|cff66ff66on|r — roads, quests, party, fog, where the minimap was"
+                or  "off — just the dark disc and your buttons")
+
+        elseif arg:match("^zoom") then
+            local v = tonumber(arg:match("^zoom%s+([%d%.]+)$"))
+            if v then
+                NS.db.cornerZoom = math.max(0.2, math.min(1.0, v))
+                NS.Corner.ApplyLook()
+                NS.Printf("corner map zoom: %.2f (1.0 = as close as it goes)", NS.db.cornerZoom)
+            else
+                NS.Print("usage: |cffffff00/eu hud zoom 0.2-1.0|r  (1.0 = tightest)")
+            end
+
+        elseif arg == "status" then
+            NS.Hud.Report()
+            NS.Printf("corner map: %s", NS.Corner.IsActive()
+                and "|cff66ff66on|r" or (NS.Corner.IsAvailable() and "off" or "|cffff6666unavailable|r"))
+
+        else
+            NS.Print("usage: |cffffff00/eu hud|r [on|off | <px> | rotate on/off | ring off/<0-100> |")
+            NS.Print("            city on/off | track on/off | map on/off | zoom <n> | status]")
+        end
+
     elseif cmd == "guesses" then
         -- The one setting that decides what this addon IS.
         if arg == "on" or arg == "off" then
@@ -665,6 +775,7 @@ SlashCmdList.EYESUP = function(msg)
         print("  |cffffff00/eu demo|r            scatter imaginary nodes around you")
         print("  |cffffff00/eu clear|r           forget this map")
         print("  |cffffff00/eu vignettes|r       what can I see, and what do I think it is")
+        print("  |cffffff00/eu hud|r <on|off|px>  your minimap's blips, in the middle of the screen")
         print("  |cffffff00/eu guesses|r <on|off> also point at nodes that might not be there")
         print("  |cffffff00/eu status|r          why isn't it firing?")
         print("  |cffffff00/eu near|r            list everything the cue can currently see, and why")
