@@ -18,6 +18,7 @@ local Vignettes = {}
 NS.Vignettes = Vignettes
 
 local Data = NS.Data
+local issecretvalue = _G.issecretvalue   -- 12.0: instanced guids come back "secret"
 
 -- Enum.VignetteType.* -> NodeType, resolved by NAME at load. The numeric values
 -- shuffle between builds; the names don't.
@@ -106,6 +107,12 @@ function Vignettes.ForEachOnMap(mapID, px, py, fn)
     wipe(seen)
 
     for _, guid in ipairs(guids) do
+        -- In instanced content (delves, dungeons) 12.0 can hand back a SECRET guid,
+        -- and using one as a table key (seen[guid], the node cache) errors. Skip it
+        -- -- there's nothing to gather in an instance anyway.
+        if issecretvalue and issecretvalue(guid) then
+            -- nothing
+        else
         local info = C_VignetteInfo.GetVignetteInfo(guid)
         -- onMinimap == false means the player can't see it either. We're here to
         -- notice things for you, not to conjure them.
@@ -118,8 +125,14 @@ function Vignettes.ForEachOnMap(mapID, px, py, fn)
                 if pos then
                     local x, y = pos:GetXY()
                     if x and y then
-                        Data.NoteKnown(nodeType, id, info.name)
-                        local node = getNode(guid, nodeType, id, info.name, x, y)
+                        -- The name can be secret even when the guid isn't, and it
+                        -- flows into node.name -> the cue's item lookup and its text
+                        -- label. A secret there errors, so drop it to nil (the
+                        -- vignette still shows, just nameless).
+                        local safeName = info.name
+                        if issecretvalue and issecretvalue(safeName) then safeName = nil end
+                        Data.NoteKnown(nodeType, id, safeName)
+                        local node = getNode(guid, nodeType, id, safeName, x, y)
                         local dist = Data.DistanceYards(mapID, px, py, x, y)
                         local bearing = Data.Bearing(mapID, px, py, x, y)
                         fn(node, dist, bearing)
@@ -127,6 +140,7 @@ function Vignettes.ForEachOnMap(mapID, px, py, fn)
                 end
             end
         end
+        end   -- close the not-secret branch
     end
 
     prune()
