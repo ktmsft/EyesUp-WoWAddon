@@ -459,7 +459,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
         NS.Scan.Start()                    -- the heartbeat; needs both renderers built
         NS.Options.Init()                  -- get listed in Settings before anyone looks
 
-        NS.Print("eyes up. |cffffff00/eu|r for options, |cffffff00/eu demo|r to see it work.")
+        NS.Print("eyes up. |cffffff00/eu|r for options.")
         if NS.migrated then
             NS.Print("|cff88ff88Found your old NodeSight data and brought it along.|r")
         end
@@ -507,33 +507,6 @@ local function markHere(nodeType)
     if not mapID then NS.Print("I don't know where you are."); return end
     Data.AddNode(mapID, x, y, nodeType, nil, "Manual mark")
     NS.Printf("marked a %s node right here.", NS.NodeTypeLabel[nodeType] or nodeType)
-end
-
--- Scatter imaginary nodes around you, so you can watch the cue work without
--- flying to a zone and hoping.
-local function demoScatter()
-    local mapID, x, y = Data.GetPlayerPosition()
-    if not mapID then NS.Print("I don't know where you are."); return end
-    local types = NS.NodeTypeOrder
-    for i = 1, 8 do
-        local ang = (i / 8) * math.pi * 2
-        local r = 0.02 + (i % 3) * 0.015
-        local t = types[(i % #types) + 1]
-        Data.AddNode(mapID, x + math.cos(ang) * r, y + math.sin(ang) * r,
-            t, 1000 + i, "Demo " .. NS.NodeTypeLabel[t] .. " " .. i)
-    end
-    -- Imaginary nodes are, by definition, not really there -- so with the default
-    -- confirmed-only cue they'd be filtered out and the demo would show nothing at
-    -- all. Turn guesses on for the duration, and say so, rather than leaving
-    -- someone to conclude the addon is broken.
-    if not NS.db.showGuesses then
-        NS.db.showGuesses = true
-        if NS.Options then NS.Options.Refresh() end
-        NS.Print("(turned |cffffcc00guesses on|r — fake nodes aren't really there, so the")
-        NS.Print(" confirmed-only cue would ignore them. |cffffff00/eu guesses off|r when you're done.)")
-    end
-
-    NS.Print("scattered some imaginary nodes around you. Spin in a circle.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -614,9 +587,6 @@ SlashCmdList.EYESUP = function(msg)
         else
             NS.Print("usage: /eu priority herb/mine/lumber/fish/treasure low/normal/high")
         end
-
-    elseif cmd == "demo" then
-        demoScatter()
 
     elseif cmd == "clear" then
         local mapID = C_Map.GetBestMapForUnit("player")
@@ -850,11 +820,6 @@ SlashCmdList.EYESUP = function(msg)
             NS.Print("|cff888888gathermate = a node has BEEN here. Not that one is here now.|r")
         end
 
-    elseif cmd == "probe" then
-        -- Diagnostics. See Probe.lua -- it measures what the client will actually
-        -- tell us about live nodes, which is more than this addon currently asks.
-        NS.Probe.Command(arg)
-
     elseif cmd == "debug" then
         NS.db.debug = not NS.db.debug
         NS.Print("debug " .. (NS.db.debug and "on" or "off"))
@@ -868,7 +833,6 @@ SlashCmdList.EYESUP = function(msg)
         print("  |cffffff00/eu reset|r           put them back")
         print("  |cffffff00/eu priority|r <type> low/normal/high")
         print("  |cffffff00/eu mark|r <type>     drop a test node here")
-        print("  |cffffff00/eu demo|r            scatter imaginary nodes around you")
         print("  |cffffff00/eu clear|r           forget this map")
         print("  |cffffff00/eu vignettes|r       what can I see, and what do I think it is")
         print("  |cffffff00/eu hud|r <on|off|px>  your minimap's blips, in the middle of the screen")
@@ -877,7 +841,6 @@ SlashCmdList.EYESUP = function(msg)
         print("  |cffffff00/eu near|r            list everything the cue can currently see, and why")
         print("  |cffffff00/eu seed|r <on|off>   use GatherMate2_Data's node map, if installed")
         print("  |cffffff00/eu clearknown|r      reset the discovered-node list")
-        print("  |cffffff00/eu probe|r           what will the client REALLY tell us? (diagnostic)")
         print("  |cffffff00/eu debug|r           narrate everything")
     end
 end

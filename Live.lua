@@ -202,11 +202,19 @@ end
 -- Gating on it silently makes this whole file a no-op, which cost a farming lap
 -- to discover once already. The GUID is the existence test.
 -- ---------------------------------------------------------------------------
-local Secret_CanAccess = _G.Secret_CanAccess
+-- Is this value safe to USE -- as a table key, in a comparison, printed?
+--
+-- 12.0 hides object identities in instanced content (delves, dungeons) behind
+-- "secret" values. The subtlety that bit us: Secret_CanAccess only says whether
+-- you may READ a value; a value can be readable and STILL be a secret type that
+-- errors the instant you index a table with it or compare it. issecretvalue is
+-- the real test. If it's a secret, we treat it as unusable -- Live simply reports
+-- nothing in a delve, which is correct: there's nothing to gather in there.
+local issecretvalue = _G.issecretvalue
 
 local function canRead(v)
     if v == nil then return false end
-    if Secret_CanAccess then return Secret_CanAccess(v) end
+    if issecretvalue and issecretvalue(v) then return false end
     return true
 end
 

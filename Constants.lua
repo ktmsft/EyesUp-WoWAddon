@@ -506,6 +506,13 @@ NS.defaults = {
     -- blown up over your character is nobody's idea of a heads-up display.
     hudHideInCity    = true,
 
+    -- Fold the HUD in DUNGEONS and RAIDS (instanceType "party"/"raid") -- combat
+    -- content where you're not gathering and the giant minimap is just in the way.
+    -- Deliberately NOT delves or ritual sites: those are scenario-type instances,
+    -- prime gathering, and exactly where the HUD earns its keep. A separate toggle
+    -- from cities so you can want one and not the other.
+    hudHideInDungeons = true,
+
     -- Hover a blip and the game tells you what it is -- but that needs the mouse
     -- ON, and a mouse-enabled minimap in the middle of your screen swallows clicks
     -- over its whole circle (annoying while you're grabbing nodes). So it's off by

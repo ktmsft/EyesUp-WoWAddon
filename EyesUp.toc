@@ -2,7 +2,7 @@
 ## Title: Eyes Up
 ## Notes: Watch the world, not the minimap. A quiet cue when something worth stopping for is near.
 ## Author: Kennedy Michel
-## Version: 1.1.0
+## Version: 1.1.1
 ## SavedVariablesPerCharacter: EyesUpDB
 ## SavedVariables: EyesUpAccountDB
 ## IconTexture: Interface\ICONS\INV_Misc_Herb_16
@@ -37,9 +37,6 @@
 #   Scan        THE ENGINE: one look around per tick, handed to the renderers.
 #               Loads after them, because it's the only file that needs them.
 #   Options     the knobs
-#   Probe       a DIAGNOSTIC, not a feature. Nothing depends on it; delete the
-#               file and the addon is unchanged. It needs Scan (to borrow the
-#               nearest node for the nav test), so it loads after it.
 #   Core        wakes everything up. Assumes the rest exists, so it goes last.
 Constants.lua
 Species.lua
@@ -53,7 +50,6 @@ Overlay.lua
 Cue.lua
 Scan.lua
 Options.lua
-Probe.lua
 Core.lua
 
 # NOTE: Bindings.xml is NOT listed here on purpose. The client auto-loads a file

@@ -809,7 +809,32 @@ end
 function Hud.ShouldShow()
     local db = NS.db
     if not (db and db.hudEnabled) then return false end
+
+    -- Cities and inns.
     if db.hudHideInCity and IsResting and IsResting() then return false end
+
+    -- Battlegrounds and arenas: always, no toggle. There's nothing to gather in one,
+    -- and in a PvP instance you want your real minimap back where your muscle memory
+    -- expects it -- covering the actual map with a herb radar is the opposite of
+    -- helpful when someone's stunning you. "pvp" is a battleground, "arena" is an
+    -- arena; both come from the SECOND return of IsInInstance(), guarded by the first.
+    if IsInInstance then
+        local inInstance, itype = IsInInstance()
+        if inInstance and (itype == "pvp" or itype == "arena") then return false end
+    end
+
+    -- Dungeons and raids ONLY. The FIRST return of IsInInstance() is the thing that
+    -- matters: are you physically zoned INTO an instance? The "party"/"raid" string
+    -- is the instance's content type (5-player vs raid), NOT your group -- being in
+    -- a party or raid out in the open world returns (false, "none"), so this never
+    -- fires from just grouping up. Delves and ritual sites are "scenario" and stay
+    -- (prime gathering). Soft-target goes quiet inside any instance because 12.0
+    -- makes it a secret value, but Live.lua handles that without erroring.
+    if db.hudHideInDungeons and IsInInstance then
+        local inInstance, itype = IsInInstance()
+        if inInstance and (itype == "party" or itype == "raid") then return false end
+    end
+
     return true
 end
 
@@ -832,13 +857,15 @@ function Hud.Toggle()
     return Hud.SetEnabled(not (NS.db and NS.db.hudEnabled))
 end
 
--- Resting state flips when you cross a city/inn boundary. That's our cue.
+-- Resting flips at city/inn boundaries; PLAYER_ENTERING_WORLD fires on every
+-- instance transition. Both are cues to re-decide whether the HUD should show.
 local restWatch = CreateFrame("Frame")
 restWatch:RegisterEvent("PLAYER_UPDATE_RESTING")
 restWatch:RegisterEvent("ZONE_CHANGED")
 restWatch:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+restWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
 restWatch:SetScript("OnEvent", function()
-    -- next frame: IsResting() can lag the event by a tick
+    -- next frame: IsResting()/IsInInstance() can lag the event by a tick
     C_Timer.After(0, Hud.Refresh)
 end)
 

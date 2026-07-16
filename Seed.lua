@@ -389,20 +389,18 @@ function Seed.Supersede(mapID, x, y, nodeType)
 end
 
 -- ---------------------------------------------------------------------------
--- A ruler for the probe.
+-- Putting a soft-target name on the map.
 --
 -- Soft-target tells us WHAT is near ("Tranquility Bloom") but flatly refuses to
 -- say where -- UnitPosition returns nil for a game object. GatherMate knows where
--- every Tranquility Bloom in the zone is. Put the two together and we can measure
--- exactly how far away soft-target acquired something, the instant it happens,
--- with no walking and no gathering.
+-- every Tranquility Bloom in the zone is. Put the two together and the live cue
+-- can point an arrow at the thing soft-target just found, the instant it happens,
+-- with no walking and no gathering. This is how Live.lua turns a name into a
+-- direction.
 --
--- That measurement is the one the whole design now hangs on: if soft-target only
--- reaches ~14 yards, a truthful cue can only ever whisper at your feet. If it
--- reaches sixty, we can build the addon we actually want.
---
--- Deliberately searches WIDER than detection range -- we're trying to find the
--- cap, so the ruler must be longer than the thing being measured.
+-- Searches a little WIDER than detection range on purpose: soft-target can acquire
+-- something a hair past our radius, and we'd rather find its position and let the
+-- distance filter decide than miss it for being one yard long.
 -- ---------------------------------------------------------------------------
 function Seed.LocateByName(mapID, px, py, name, maxYards)
     if not (name and ensure()) then return nil end

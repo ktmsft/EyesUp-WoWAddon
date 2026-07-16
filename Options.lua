@@ -618,6 +618,12 @@ local function buildHudPage()
         .. "let us hide -- and you're not gathering there anyway. So the HUD folds "
         .. "away while you're resting and comes back when you ride out.", 54)
 
+    placeL(makeCheck(L, "Step aside in dungeons & raids",
+        function() return NS.db.hudHideInDungeons end,
+        function(v) NS.db.hudHideInDungeons = v; NS.Hud.Refresh() end))
+    noteL("Folds away in dungeons and raids, so you're not chasing flowers mid-pull. "
+        .. "Delves and ritual sites keep the HUD.", 34)
+
     placeL(makeCheck(L, "Map in the corner", function() return NS.db.cornerMap end,
         function(v)
             NS.db.cornerMap = v
@@ -631,16 +637,16 @@ local function buildHudPage()
     placeL(makeCheck(L, "Blip tooltips on hover",
         function() return NS.db.hudTooltips end,
         function(v) NS.db.hudTooltips = v; NS.Hud.ApplyLook() end))
-    noteL("Hover a blip to see what it is, like the corner minimap. The catch: the "
-        .. "HUD then captures the mouse over its circle, so you can't click the "
+    noteL("Hover a blip to read its name, like the old corner minimap. The catch: the "
+        .. "HUD then hogs the mouse over its whole circle, so you can't click the "
         .. "world through it.", 44)
 
     placeL(makeCheck(L, "Share settings across all my characters",
         function() return NS.SettingsAreShared and NS.SettingsAreShared() end,
         function(v) if NS.SetSettingsShared then NS.SetSettingsShared(v) end end))
-    noteL("On: every character reads and writes one shared set of settings (and the "
-        .. "nodes you've gathered). Off: each character keeps its own. Flipping this "
-        .. "copies your current settings across, then reloads.", 48)
+    noteL("On: all your characters share one set of settings and one pile of "
+        .. "gathered nodes. Off: each keeps its own. Flipping this copies what "
+        .. "you've got across first -- nothing's lost -- then reloads.", 48)
 
     -- ---- right column: what to track, and the dials ----
     local R = CreateFrame("Frame", nil, content)
@@ -717,9 +723,9 @@ local function buildHudPage()
     mnote:SetPoint("TOPLEFT", 22, -(tTop + 44))
     mnote:SetWidth(600)
     mnote:SetJustifyH("LEFT")
-    mnote:SetText("While the HUD is up these OVERRIDE your minimap tracking -- ticked "
-        .. "shows, unticked hides, for good (even mailboxes and quest markers). Off "
-        .. "by default for everything but gathering.")
+    mnote:SetText("While the HUD is up, these win over your minimap tracking -- ticked "
+        .. "shows, unticked hides, even the mailboxes and quest markers. Everything but "
+        .. "gathering starts off.")
 
     local trackList = CreateFrame("Frame", nil, content)
     trackList:SetPoint("TOPLEFT", 16, -(tTop + 68))

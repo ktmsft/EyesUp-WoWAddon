@@ -48,7 +48,8 @@ local active = false
 local saved = nil
 local lastMapID = nil
 local follower
-local stripped = false          -- have we removed its (tainting) data providers yet
+local providersKilled = false   -- have we neutralised its (tainting) data providers
+local origAddDataProvider       -- saved so nothing can re-add a pin behind our back
 
 -- It's a LoadOnDemand Blizzard addon, so it doesn't exist until somebody asks.
 local function acquire()
@@ -56,6 +57,36 @@ local function acquire()
     local load = C_AddOns and C_AddOns.LoadAddOn or _G.LoadAddOn
     if load then pcall(load, "Blizzard_BattlefieldMap") end
     return _G.BattlefieldMapFrame
+end
+
+-- KILL THE PINS -- for good, not just once.
+--
+-- The Battlefield Map is a secure Blizzard frame. The moment we reparent and drive
+-- it from addon code it's tainted -- and its AreaPOI / quest / vignette pins call
+-- the PROTECTED SetPropagateMouseClicks when they're acquired. With our taint on the
+-- stack the game blocks that call and spits ADDON_ACTION_BLOCKED every time a
+-- mailbox, quest marker or treasure vignette comes into view.
+--
+-- Removing the providers once is NOT enough: the map re-registers its shared data
+-- providers on map/zone changes, and the next vignette that pops re-acquires a pin
+-- and taints again. So we do two things, and the second is the one that actually
+-- holds: remove everything that's there now, then replace AddDataProvider with a
+-- no-op so nothing can ever attach again this session. No provider, no pin, no
+-- protected call. The canvas's own tile system draws the terrain regardless (it
+-- isn't a data provider), and our follow loop keeps it centred on you.
+--
+-- Side effect: the real Battlefield Map stays bare until a /reload. Almost nobody
+-- opens it directly, and a reload restores it fully.
+local function killProviders(f)
+    if not f then return end
+    if f.RemoveAllDataProviders then
+        pcall(f.RemoveAllDataProviders, f)
+    end
+    if f.AddDataProvider and not origAddDataProvider then
+        origAddDataProvider = f.AddDataProvider
+        f.AddDataProvider = function() end   -- pins may not enter
+    end
+    providersKilled = true
 end
 
 function Corner.IsAvailable()
@@ -69,9 +100,8 @@ end
 -- ---------------------------------------------------------------------------
 -- Following you.
 --
--- This is the whole thing that was missing: the probe panned to the player ONCE,
--- so it showed you where you'd been standing when you ran it and then sat there
--- while you walked away.
+-- This is the whole thing: a map that pans to the player ONCE shows you where you
+-- were standing when it opened, then sits there while you walk away.
 --
 -- A map that doesn't follow you is a screenshot.
 --
@@ -125,6 +155,9 @@ function Corner.Enable()
     frame = acquire()
     if not frame then return end
 
+    -- Do this FIRST, before we reparent and before any pin can be acquired.
+    killProviders(frame)
+
     local tray = _G.EyesUpMinimapTray
     if not tray then return end          -- the HUD owns the tray; no HUD, no corner
 
@@ -138,27 +171,6 @@ function Corner.Enable()
         movable = frame:IsMovable(),
         mouse   = frame:IsMouseEnabled(),
     }
-
-    -- STRIP THE PINS, or they'll taint us. This is the important line.
-    --
-    -- The Battlefield Map is a secure Blizzard frame. The moment we reparent and
-    -- drive it from addon code it's tainted -- and its AreaPOI / quest / vignette
-    -- pins call the PROTECTED SetPropagateMouseClicks when they're acquired. With
-    -- our taint on the stack, the game blocks that call and spits ADDON_ACTION_
-    -- BLOCKED errors every time a mailbox or quest marker comes into view.
-    --
-    -- We don't want those pins anyway -- the whole point of this map is terrain and
-    -- roads. So remove every data provider. No pins acquired, no protected call, no
-    -- taint. The map's own tile system draws the terrain regardless (it isn't a data
-    -- provider), and our follow loop keeps it centred on you, so "you are here" is
-    -- simply the middle of the frame -- no player pin required.
-    --
-    -- Side effect: this leaves the Battlefield Map itself bare until a /reload, but
-    -- almost nobody uses it directly, and a reload restores it fully.
-    if not stripped and frame.RemoveAllDataProviders then
-        pcall(frame.RemoveAllDataProviders, frame)
-        stripped = true
-    end
 
     frame:SetParent(tray)
     frame:ClearAllPoints()
