@@ -366,6 +366,18 @@ ev:SetScript("OnEvent", function(_, event, ...)
         local loaded = ...
         if loaded ~= addonName then return end
 
+        -- Dev vs live saved variables. A DEV build carries "[DEV]" in its Title (see the
+        -- gitignored dev loader) and declares its own EyesUpDev* files, so dev experiments
+        -- never touch a live profile and both copies can sit installed side by side. Mirror
+        -- the dev files into the working globals here, and write them back below; every
+        -- other reference stays exactly as it was.
+        local isDev = C_AddOns and C_AddOns.GetAddOnMetadata
+            and ((C_AddOns.GetAddOnMetadata(addonName, "Title") or ""):find("%[DEV%]") ~= nil)
+        if isDev then
+            EyesUpDB        = EyesUpDevDB
+            EyesUpAccountDB = EyesUpDevAccountDB
+        end
+
         EyesUpDB       = EyesUpDB or {}         -- per-character file
         EyesUpAccountDB = EyesUpAccountDB or {}  -- shared-across-all-characters file
 
@@ -376,6 +388,13 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if not next(EyesUpDB) and type(_G.NodeSightDB) == "table" then
             EyesUpDB = _G.NodeSightDB
             NS.migrated = true
+        end
+
+        -- Persist to the dev files (declared by the dev loader) so an isolated dev profile
+        -- saves on logout. Same table refs, so every later write is captured.
+        if isDev then
+            EyesUpDevDB        = EyesUpDB
+            EyesUpDevAccountDB = EyesUpAccountDB
         end
 
         -- WHICH store are we using?

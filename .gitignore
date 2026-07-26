@@ -1,0 +1,10 @@
+# Local-only DEV loader. This checkout lives in a codename folder "EyesUpDev" so a live
+# CurseForge "EyesUp" install can sit beside it. WoW needs the .toc name to match the folder,
+# so EyesUpDev.toc is a near-copy of EyesUp.toc with a "[DEV]" Title and its own EyesUpDev*
+# SavedVariables (Core.lua switches to them when the Title has "[DEV]"). Not committed — the
+# repo/zip stay EyesUp-only. Regenerate after editing EyesUp.toc with:
+#   pwsh tools/make-dev-toc.ps1
+/EyesUpDev.toc
+
+# Build output.
+/dist/
