@@ -109,28 +109,71 @@ end
 --
 -- Ordered, not a hash: with two suites loaded we want the same answer every time.
 -- ---------------------------------------------------------------------------
+-- Each entry is { name we say out loud, { every folder that means this suite } }.
+-- Folder names in the wild are not what you would guess -- "simpleMinimap" is
+-- lowercase, "Square_Minimap" carries an underscore, Carbonite ships its maps in a
+-- dotted folder -- and asking IsAddOnLoaded for a string that is one character off
+-- returns false with no complaint. A silently wrong entry is worse than no entry,
+-- because it looks like coverage. So: match case-insensitively, and list every
+-- plausible folder rather than betting on one.
+--
+-- Verified against each project's own packaging in July 2026. EllesmereUI was
+-- verified against a live install -- it's the one that proved the whole exercise
+-- necessary, since the obvious guess ("EllesmereUI") is a framework every module in
+-- the suite depends on and would have stood us down for people running only its
+-- chat and action bars.
 local MINIMAP_SUITES = {
-    { "ElvUI",              "ElvUI" },
-    { "EllesmereUIMinimap", "EllesmereUI" },
-    { "Tukui",         "Tukui" },
-    { "NDui",          "NDui" },
-    { "SpartanUI",     "SpartanUI" },
-    { "LUI",           "LUI" },
-    { "SexyMap",       "SexyMap" },
-    { "Chinchilla",    "Chinchilla" },
-    { "SimpleMinimap", "SimpleMinimap" },
-    { "BasicMinimap",  "BasicMinimap" },
-    { "SquareMinimap", "SquareMinimap" },
-    { "Carbonite",     "Carbonite" },
+    { "ElvUI",          { "ElvUI" } },
+    { "EllesmereUI",    { "EllesmereUIMinimap" } },
+    { "Tukui",          { "Tukui" } },
+    { "NDui",           { "NDui" } },
+    { "SpartanUI",      { "SpartanUI" } },
+    { "SexyMap",        { "SexyMap" } },
+    { "BasicMinimap",   { "BasicMinimap" } },
+    { "Chinchilla",     { "Chinchilla" } },
+    { "simpleMinimap",  { "simpleMinimap" } },
+    { "Square Minimap", { "Square_Minimap", "SquareMinimap" } },
+    { "Carbonite",      { "Carbonite", "Carbonite.Maps" } },
+    { "LUI",            { "LUI" } },
 }
+
+-- Every loaded addon's folder name, lowercased, as a set. Enumerating beats asking
+-- about names one at a time: it costs one pass, and it's what makes the matching
+-- case-insensitive instead of hoping we typed the capitals the way the author did.
+local function loadedAddonSet()
+    local A = _G.C_AddOns or _G
+    local count = A.GetNumAddOns or _G.GetNumAddOns
+    local info  = A.GetAddOnInfo or _G.GetAddOnInfo
+    local isOn  = A.IsAddOnLoaded or _G.IsAddOnLoaded
+    if not (count and info and isOn) then return nil end
+
+    local set, n = {}, 0
+    local ok, total = pcall(count)
+    if not ok or not total then return nil end
+
+    for i = 1, total do
+        local okName, name = pcall(info, i)
+        if okName and name then
+            local okLoaded, loaded = pcall(isOn, i)
+            if okLoaded and loaded then
+                set[name:lower()] = true
+                n = n + 1
+            end
+        end
+    end
+    return n > 0 and set or nil
+end
 
 -- Who else thinks the minimap is theirs? A display name, or nil for "nobody".
 function Hud.MinimapOwner()
-    local loaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
+    local loaded = loadedAddonSet()
     if loaded then
+        -- Our order, not the game's install order, so two suites at once give the
+        -- same answer every time.
         for _, entry in ipairs(MINIMAP_SUITES) do
-            local ok, is = pcall(loaded, entry[1])
-            if ok and is then return entry[2] end
+            for _, folder in ipairs(entry[2]) do
+                if loaded[folder:lower()] then return entry[1] end
+            end
         end
     end
 
@@ -146,6 +189,29 @@ function Hud.MinimapOwner()
             -- "UIParent is running your minimap" tells nobody anything.
             local n = p.GetName and p:GetName()
             if n and n ~= "UIParent" then return n end
+            return "another addon"
+        end
+
+        -- THE CORNER ITSELF, which catches what the parent check can't.
+        --
+        -- Reparenting is only one way to claim a minimap. An addon that restyles and
+        -- repositions it IN PLACE never touches the parent, and the check above sails
+        -- straight past it. What such an addon almost always does do is deal with
+        -- Blizzard's cluster -- the border, the tracking button, the clock -- because
+        -- it's drawing its own.
+        --
+        -- Blizzard ships MinimapCluster shown and fully opaque and leaves it that way,
+        -- so either of these means somebody has been at it. EllesmereUI fades rather
+        -- than hides (SetAlpha(0), still shown), which is exactly why testing both
+        -- matters -- and it means we'd have caught EllesmereUI with the name list
+        -- entirely empty.
+        --
+        -- Safe in the one place it could bite: Eyes Up hides the cluster itself when
+        -- hudKeepCorner is off, and this whole block is behind `not active`.
+        if MinimapCluster.IsShown and not MinimapCluster:IsShown() then
+            return "another addon"
+        end
+        if MinimapCluster.GetAlpha and MinimapCluster:GetAlpha() < 1 then
             return "another addon"
         end
     end
