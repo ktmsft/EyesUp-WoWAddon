@@ -508,10 +508,13 @@ NS.defaults = {
     -- of the corner -- which is indistinguishable, from the player's chair, from us
     -- having broken their UI. Somebody reported exactly that, and they were right to.
     --
-    -- So we check once: if one of those is running, the HUD stays down and says why,
-    -- and `/eu hud on` is right there for anyone who wants it anyway. Asked once per
-    -- character, never again, whichever way it goes. Turn this off and Eyes Up takes
-    -- the minimap regardless of what else is installed. See Hud.MinimapOwner.
+    -- So we check at every login: if one of those is running, the HUD stays down and
+    -- says why in a dialog, with `/eu hud on` right there for anyone who wants it
+    -- anyway. We remember WHICH addon we settled it for, not merely that we asked --
+    -- so the same suite never asks twice, but swapping suites a year from now asks
+    -- again about the new one instead of silently taking its minimap. Turn this off
+    -- and Eyes Up takes the minimap regardless of what else is installed.
+    -- See Hud.CheckMinimapCompat.
     hudRespectOtherAddons = true,
 
     -- Stand the HUD down in cities and inns.

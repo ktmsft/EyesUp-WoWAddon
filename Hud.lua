@@ -190,33 +190,38 @@ StaticPopupDialogs["EYESUP_MINIMAP_TAKEN"] = {
 }
 
 -- ---------------------------------------------------------------------------
--- The one-time question, answered on the player's behalf.
+-- The question, asked at every login and answered on the player's behalf.
 --
--- Runs once per character. The stamp is deliberately NOT a key in NS.defaults --
--- see the identityVersion note in Core.lua for why that matters: a default would
--- hand every existing install the "already asked" mark, and this would never fire
--- for the very people it exists for.
+-- WE REMEMBER WHO, NOT WHETHER. The first cut of this stored a boolean -- "already
+-- asked" -- and that has one failure that gets worse the longer somebody uses the
+-- addon: answer it once for EllesmereUI, uninstall EllesmereUI a year later, install
+-- SexyMap, and Eyes Up quietly takes the new minimap without a word, because it
+-- remembers being asked A question rather than THAT question.
 --
--- Stamped before any of the early-outs, so this asks once and then never again --
--- whichever way it goes. Someone who wants the HUD on top of their suite turns it
--- on and is left alone forever after.
+-- So the stamp is the owner's name. Same suite as last time, stay quiet forever.
+-- Different suite -- or a suite where there wasn't one before -- and it's a new
+-- question, so ask it. Nobody gets nagged about a decision they've already made, and
+-- nobody gets silently overridden because their setup changed.
 --
--- TWO conditions have to hold for this to fire, and it's worth saying out loud
--- because it makes the thing untestable if you forget: the stamp must be unset AND
--- the HUD must be ON. After it fires once, BOTH are false -- so re-arming for a
--- retest means clearing the stamp and turning the HUD back on. That's what
--- `/eu hud compat reset` is for; it does both and re-runs the check on the spot.
+-- Deliberately NOT a key in NS.defaults -- see the identityVersion note in Core.lua:
+-- a default would hand every install the "already asked" mark, and this would never
+-- fire for the very people it exists for.
+--
+-- Note the order of the guards. We stamp only when we ACTUALLY ask, which means the
+-- HUD-is-off case falls through without recording anything: there's nothing to stand
+-- down, so there's no decision to remember, and if they turn the HUD on later we
+-- still owe them the question.
 -- ---------------------------------------------------------------------------
 function Hud.CheckMinimapCompat()
     local db = NS.db
-    if not db or db.hudCompatChecked then return end
-    db.hudCompatChecked = true
-
-    if not (db.hudRespectOtherAddons and db.hudEnabled) then return end
+    if not (db and db.hudRespectOtherAddons) then return end
 
     local owner = Hud.MinimapOwner()
-    if not owner then return end
+    if not owner then return end            -- nobody else wants it; nothing to ask
+    if db.hudCompatAsked == owner then return end   -- asked, answered, settled
+    if not db.hudEnabled then return end    -- already off; ask if it ever comes on
 
+    db.hudCompatAsked = owner
     db.hudEnabled = false
 
     -- Take it down NOW, don't just record the wish. At login this was harmless --

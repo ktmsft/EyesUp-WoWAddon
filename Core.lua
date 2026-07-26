@@ -775,7 +775,7 @@ SlashCmdList.EYESUP = function(msg)
             -- Switching it back ON re-arms the question. Anyone who turns this on
             -- is asking to be warned, and "on, but I already asked you once while
             -- it was off, so never again" is not what those words mean.
-            if NS.db.hudRespectOtherAddons then NS.db.hudCompatChecked = nil end
+            if NS.db.hudRespectOtherAddons then NS.db.hudCompatAsked = nil end
             NS.Printf("stand aside for minimap addons: %s", NS.db.hudRespectOtherAddons
                 and "|cff66ff66on|r — the HUD won't claim a minimap another addon is running"
                 or  "off — the HUD takes the minimap whatever else is installed")
@@ -784,10 +784,10 @@ SlashCmdList.EYESUP = function(msg)
             -- Re-ask, now. Both conditions have to be put back, not just the stamp:
             -- the check only fires while the HUD is ON, and standing down turned it
             -- off. Clearing the stamp alone looks like the feature is broken.
-            NS.db.hudCompatChecked = nil
+            NS.db.hudCompatAsked = nil
             NS.db.hudEnabled = true
             NS.Hud.CheckMinimapCompat()
-            if NS.db.hudCompatChecked and not NS.db.hudEnabled then
+            if NS.db.hudCompatAsked and not NS.db.hudEnabled then
                 NS.Print("compat check re-armed and it fired -- see the dialog.")
             else
                 local owner = NS.Hud.MinimapOwner()
