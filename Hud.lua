@@ -100,11 +100,18 @@ end
 --      one needs no name, so it catches the suites the list has never heard of --
 --      which, on a long enough timeline, is most of them.
 --
+-- NAME THE MODULE, NOT THE SUITE. EllesmereUI taught this one: "EllesmereUI" is a
+-- shared framework that every module in the suite depends on, so somebody running
+-- only its action bars and chat has it loaded and wants nothing to do with the
+-- minimap. Checking that name would stand us down for nothing. "EllesmereUIMinimap"
+-- is the part that actually claims the map. Left column is the folder we test, right
+-- column is the name we say out loud.
+--
 -- Ordered, not a hash: with two suites loaded we want the same answer every time.
 -- ---------------------------------------------------------------------------
 local MINIMAP_SUITES = {
-    { "ElvUI",         "ElvUI" },
-    { "EllesmereUI",   "EllesmereUI" },
+    { "ElvUI",              "ElvUI" },
+    { "EllesmereUIMinimap", "EllesmereUI" },
     { "Tukui",         "Tukui" },
     { "NDui",          "NDui" },
     { "SpartanUI",     "SpartanUI" },
@@ -133,7 +140,13 @@ function Hud.MinimapOwner()
     if not active and Minimap and MinimapCluster and Minimap.GetParent then
         local p = Minimap:GetParent()
         if p and p ~= MinimapCluster and p ~= _G.MinimapBackdrop then
-            return (p.GetName and p:GetName()) or "another addon"
+            -- A named holder is worth repeating back ("ElvUI_MinimapHolder" tells the
+            -- player exactly who). UIParent is not: it's where every suite that can't
+            -- be bothered to build a holder drops it -- EllesmereUI among them -- and
+            -- "UIParent is running your minimap" tells nobody anything.
+            local n = p.GetName and p:GetName()
+            if n and n ~= "UIParent" then return n end
+            return "another addon"
         end
     end
 end
@@ -191,8 +204,20 @@ local moved = {}       -- { obj, parent, point } for everything we relocated
 local function ensureTray()
     if tray then return tray end
 
-    tray = CreateFrame("Frame", "EyesUpMinimapTray", MinimapCluster or UIParent)
+    -- PARENTED TO UIParent, NOT THE CLUSTER -- and that's not a style choice.
+    --
+    -- Alpha is inherited. EllesmereUI doesn't HIDE MinimapCluster when it takes the
+    -- minimap over, it sets the cluster's alpha to 0 and leaves it shown. Hang the
+    -- tray off that and the tray, its disc, and every addon button we carefully
+    -- parked on it are all invisible -- so the corner we went to this trouble to
+    -- preserve just looks empty, which is the exact complaint this release is about.
+    --
+    -- Anchoring is unaffected: we still SetPoint against whatever the minimap was
+    -- anchored to (see stripArt), and anchoring to a transparent frame resolves
+    -- perfectly well. Only PARENTING inherits the alpha.
+    tray = CreateFrame("Frame", "EyesUpMinimapTray", UIParent)
     tray:SetFrameStrata("LOW")
+    tray:SetAlpha(1)
 
     -- A dark disc where the map used to be. Without it the corner is a ring around
     -- a hole, which reads as a bug rather than a choice.
@@ -472,6 +497,19 @@ function Hud.Enable()
         scale  = Minimap:GetScale(),
         mouse  = Minimap:IsMouseEnabled(),
     }
+
+    -- UNLOCK BEFORE WE SET. A minimap addon can nail the strata and level down with
+    -- SetFixedFrameStrata/SetFixedFrameLevel -- EllesmereUI does exactly that -- and
+    -- once it's fixed, SetFrameStrata is silently ignored. No error, no warning: the
+    -- HUD just comes up at whatever strata the suite chose, so a 400px minimap sits
+    -- ON TOP of your action bars instead of behind them. Unlock first and the set
+    -- below means what it says.
+    --
+    -- We don't re-lock on the way out. There's no getter to tell us it was locked in
+    -- the first place, and the suite re-applies it on its next rebuild anyway -- which
+    -- is what the /reload note in SetEnabled is for.
+    if Minimap.SetFixedFrameStrata then pcall(Minimap.SetFixedFrameStrata, Minimap, false) end
+    if Minimap.SetFixedFrameLevel then pcall(Minimap.SetFixedFrameLevel, Minimap, false) end
 
     Minimap:SetParent(UIParent)
     Minimap:ClearAllPoints()
