@@ -152,6 +152,44 @@ function Hud.MinimapOwner()
 end
 
 -- ---------------------------------------------------------------------------
+-- SAY IT WHERE IT CAN'T BE MISSED.
+--
+-- A chat line is the wrong shape for this. We have just switched off the feature
+-- people install this addon FOR, and chat scrolls away behind loot spam and combat
+-- text before anybody reads it. EllesmereUI puts a real dialog up when it finds
+-- Plater running against its own nameplates, and that's the right instinct: if an
+-- addon has made a decision on the player's behalf, it should say so somewhere they
+-- have to look, and let them undo it in one click rather than go hunting for a
+-- slash command.
+--
+-- Ours differs from theirs in one way, deliberately. No "don't show again" button:
+-- CheckMinimapCompat stamps itself and asks once per character no matter which way
+-- this goes, so offering to suppress a thing that was never going to repeat would
+-- be a lie about what the alternative was. The second button does something useful
+-- instead -- it turns the HUD on.
+-- ---------------------------------------------------------------------------
+StaticPopupDialogs = StaticPopupDialogs or {}
+StaticPopupDialogs["EYESUP_MINIMAP_TAKEN"] = {
+    text = "|cff66ff66Eyes Up|r\n\n"
+        .. "%s is running your minimap, so the blip HUD has been left off.\n\n"
+        .. "The HUD works by MOVING your minimap to the middle of the screen -- "
+        .. "there's only one of them, so it can't be in both places at once.\n\n"
+        .. "Everything else in Eyes Up is already running.",
+    button1 = _G.OKAY or "Okay",
+    button2 = "Use the HUD anyway",
+    -- Two-button StaticPopups map button1 to OnAccept and button2 to OnCancel.
+    -- "Cancel" here means "no, take the minimap", which reads backwards in the
+    -- source and exactly right on screen.
+    OnCancel = function()
+        if NS.Hud then NS.Hud.SetEnabled(true) end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,      -- keeps us off Blizzard's own dialog slots, and out of their taint
+}
+
+-- ---------------------------------------------------------------------------
 -- The one-time question, answered on the player's behalf.
 --
 -- Runs once per character. The stamp is deliberately NOT a key in NS.defaults --
@@ -174,10 +212,16 @@ function Hud.CheckMinimapCompat()
     if not owner then return end
 
     db.hudEnabled = false
-    NS.Printf("|cffffcc00%s is running your minimap, so Eyes Up left it where it is.|r", owner)
-    NS.Print("  The HUD works by MOVING your minimap to the middle of the screen -- there's")
-    NS.Print("  only one of them, so it can't be in both places at once.")
-    NS.Print("  |cffffff00/eu hud on|r to use it anyway. Everything else is already running.")
+
+    -- The dialog is the part people will actually read. The chat line is the record
+    -- underneath it, for whoever clicks Okay on reflex and wonders an hour later
+    -- where the HUD went.
+    NS.Printf("|cffffcc00%s is running your minimap, so the blip HUD stayed off.|r "
+        .. "|cffffff00/eu hud on|r to use it anyway.", owner)
+
+    if _G.StaticPopup_Show then
+        _G.StaticPopup_Show("EYESUP_MINIMAP_TAKEN", owner)
+    end
 end
 
 -- ---------------------------------------------------------------------------
