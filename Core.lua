@@ -478,9 +478,17 @@ ev:SetScript("OnEvent", function(_, event, ...)
         -- The minimap isn't ours until Blizzard has finished arranging it, and it
         -- arranges it during PLAYER_LOGIN. Take it a moment later. Refresh (not
         -- Enable) so a login inside a city correctly stays stood-down.
-        if NS.db.hudEnabled then
-            C_Timer.After(0.5, function() NS.Hud.Refresh() end)
-        end
+        --
+        -- CheckMinimapCompat goes inside the same delay, and that's load-bearing:
+        -- a UI suite claims the minimap from its OWN login handler, which may run
+        -- after ours. Ask at PLAYER_LOGIN proper and we'd be looking at Blizzard's
+        -- untouched minimap and conclude nobody else wants it. The timer is
+        -- unconditional now -- the check has to run even when the HUD is already
+        -- off, so it stamps itself and stops asking.
+        C_Timer.After(0.5, function()
+            NS.Hud.CheckMinimapCompat()
+            if NS.db.hudEnabled then NS.Hud.Refresh() end
+        end)
 
         NS.Scan.Start()                    -- the heartbeat; needs both renderers built
         NS.Options.Init()                  -- get listed in Settings before anyone looks
@@ -762,14 +770,25 @@ SlashCmdList.EYESUP = function(msg)
                 NS.Print("usage: |cffffff00/eu hud zoom 0.2-1.0|r  (1.0 = tightest)")
             end
 
+        elseif arg == "compat on" or arg == "compat off" then
+            NS.db.hudRespectOtherAddons = (arg == "compat on")
+            NS.Printf("stand aside for minimap addons: %s", NS.db.hudRespectOtherAddons
+                and "|cff66ff66on|r — the HUD won't claim a minimap another addon is running"
+                or  "off — the HUD takes the minimap whatever else is installed")
+
         elseif arg == "status" then
             NS.Hud.Report()
             NS.Printf("corner map: %s", NS.Corner.IsActive()
                 and "|cff66ff66on|r" or (NS.Corner.IsAvailable() and "off" or "|cffff6666unavailable|r"))
+            local owner = NS.Hud.MinimapOwner()
+            if owner then
+                NS.Printf("minimap also managed by: |cffffcc00%s|r", owner)
+            end
 
         else
             NS.Print("usage: |cffffff00/eu hud|r [on|off | <px> | rotate on/off | ring off/<0-100> |")
-            NS.Print("            city on/off | track on/off | map on/off | zoom <n> | status]")
+            NS.Print("            city on/off | track on/off | map on/off | zoom <n> |")
+            NS.Print("            compat on/off | status]")
         end
 
     elseif cmd == "guesses" then

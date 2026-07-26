@@ -42,8 +42,13 @@ local addonName, NS = ...
 -- little map in your corner is gone: no terrain, no roads, no zone map. You get
 -- the blips instead, where you're looking.
 --
--- That's a real trade and it's why this is off by default. But it is also, quite
--- precisely, the trade this addon exists to offer.
+-- That's a real trade. It's on by default anyway, because it is also, quite
+-- precisely, the trade this addon exists to offer -- and nobody discovers that by
+-- reading an options panel.
+--
+-- With one exception, and it was a bug report that found it: if a UI suite is
+-- already running the minimap, taking it is not a trade the player agreed to. See
+-- Hud.MinimapOwner below.
 -- =============================================================================
 
 local Hud = {}
@@ -63,6 +68,7 @@ local active = false
 local startPatrol, restoreRotation, restoreRing, patrol
 local applyTracking, restoreTracking
 local reanchoring = false     -- guards the button SetPoint hook against its own corrections
+local reloadNudged = false    -- the "reload to get your skin back" note is a once-per-session thing
 
 -- Blizzard's round mask. There is no GetMaskTexture, so the only way to put the
 -- shape back is to know its name.
@@ -70,6 +76,95 @@ local ROUND_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 
 function Hud.IsActive()
     return active
+end
+
+-- ---------------------------------------------------------------------------
+-- SOMEBODY ELSE'S MINIMAP.
+--
+-- This addon does not add a HUD. It MOVES the one Minimap object the game has. If
+-- you run a UI suite -- ElvUI, EllesmereUI, SexyMap -- that object is the one it
+-- skinned, sized and parented into its own layout. Take it away and, from where the
+-- player is sitting, Eyes Up broke their UI. A CurseForge report said exactly that,
+-- and they were right to report it.
+--
+-- We can't share it. There is one Minimap and CreateFrame("Minimap") fails. So the
+-- only decent thing left is to ASK FIRST: if something else is clearly running the
+-- minimap, don't take it unasked -- stand down, say why, and leave the HUD one
+-- command away.
+--
+-- Two signals, because a name list ages badly on its own:
+--
+--   1. A known suite is loaded. Fast, exact, covers the common cases.
+--   2. The Minimap is no longer parented to MinimapCluster. Blizzard puts it there;
+--      anything that re-homes it into its own holder has plainly claimed it. This
+--      one needs no name, so it catches the suites the list has never heard of --
+--      which, on a long enough timeline, is most of them.
+--
+-- Ordered, not a hash: with two suites loaded we want the same answer every time.
+-- ---------------------------------------------------------------------------
+local MINIMAP_SUITES = {
+    { "ElvUI",         "ElvUI" },
+    { "EllesmereUI",   "EllesmereUI" },
+    { "Tukui",         "Tukui" },
+    { "NDui",          "NDui" },
+    { "SpartanUI",     "SpartanUI" },
+    { "LUI",           "LUI" },
+    { "SexyMap",       "SexyMap" },
+    { "Chinchilla",    "Chinchilla" },
+    { "SimpleMinimap", "SimpleMinimap" },
+    { "BasicMinimap",  "BasicMinimap" },
+    { "SquareMinimap", "SquareMinimap" },
+    { "Carbonite",     "Carbonite" },
+}
+
+-- Who else thinks the minimap is theirs? A display name, or nil for "nobody".
+function Hud.MinimapOwner()
+    local loaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
+    if loaded then
+        for _, entry in ipairs(MINIMAP_SUITES) do
+            local ok, is = pcall(loaded, entry[1])
+            if ok and is then return entry[2] end
+        end
+    end
+
+    -- The nameless check. Careful about WHEN this is asked: while the HUD is up the
+    -- minimap is parented to UIParent by us, so this would happily report ourselves.
+    -- Both callers ask while it's down.
+    if not active and Minimap and MinimapCluster and Minimap.GetParent then
+        local p = Minimap:GetParent()
+        if p and p ~= MinimapCluster and p ~= _G.MinimapBackdrop then
+            return (p.GetName and p:GetName()) or "another addon"
+        end
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- The one-time question, answered on the player's behalf.
+--
+-- Runs once per character. The stamp is deliberately NOT a key in NS.defaults --
+-- see the identityVersion note in Core.lua for why that matters: a default would
+-- hand every existing install the "already asked" mark, and this would never fire
+-- for the very people it exists for.
+--
+-- Stamped before any of the early-outs, so this asks once and then never again --
+-- whichever way it goes. Someone who wants the HUD on top of their suite turns it
+-- on and is left alone forever after.
+-- ---------------------------------------------------------------------------
+function Hud.CheckMinimapCompat()
+    local db = NS.db
+    if not db or db.hudCompatChecked then return end
+    db.hudCompatChecked = true
+
+    if not (db.hudRespectOtherAddons and db.hudEnabled) then return end
+
+    local owner = Hud.MinimapOwner()
+    if not owner then return end
+
+    db.hudEnabled = false
+    NS.Printf("|cffffcc00%s is running your minimap, so Eyes Up left it where it is.|r", owner)
+    NS.Print("  The HUD works by MOVING your minimap to the middle of the screen -- there's")
+    NS.Print("  only one of them, so it can't be in both places at once.")
+    NS.Print("  |cffffff00/eu hud on|r to use it anyway. Everything else is already running.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -361,6 +456,11 @@ function Hud.Enable()
     local db = NS.db
     if not db then return end
 
+    -- Everything with a getter, taken before we touch any of it. Scale and mouse
+    -- were missing here and it showed: we handed back a hard-coded scale of 1 and
+    -- mouse-on, which is Blizzard's minimap, not necessarily theirs. If a suite had
+    -- scaled it to 0.8 with the mouse off, turning the HUD off "fixed" their minimap
+    -- into something they'd never set.
     saved = {
         parent = Minimap:GetParent(),
         point  = { Minimap:GetPoint(1) },
@@ -369,6 +469,8 @@ function Hud.Enable()
         alpha  = Minimap:GetAlpha(),
         strata = Minimap:GetFrameStrata(),
         zoom   = Minimap:GetZoom(),
+        scale  = Minimap:GetScale(),
+        mouse  = Minimap:IsMouseEnabled(),
     }
 
     Minimap:SetParent(UIParent)
@@ -418,20 +520,36 @@ function Hud.Disable()
     restoreRotation()
     restoreTracking()
 
+    -- Their mouse setting, not a guess at it. Read it out before `saved` is dropped,
+    -- and mind the Lua trap: `saved.mouse or true` is true when the stored value is
+    -- false, which is the exact case this is here to preserve.
+    local wantMouse = true
+
     if saved then
+        if saved.mouse ~= nil then wantMouse = saved.mouse end
         Minimap:SetParent(saved.parent)
         Minimap:ClearAllPoints()
         if saved.point[1] then Minimap:SetPoint(unpack(saved.point)) end
         Minimap:SetSize(saved.w, saved.h)
         Minimap:SetAlpha(saved.alpha)
         Minimap:SetFrameStrata(saved.strata)
+        if saved.scale then Minimap:SetScale(saved.scale) end
         if saved.zoom then Minimap:SetZoom(saved.zoom) end
     end
 
+    -- The mask is the one thing we cannot hand back exactly. There is no
+    -- GetMaskTexture (see ROUND_MASK at the top), so we can't snapshot the shape we
+    -- replaced -- only put A shape back. Blizzard's round one, because a minimap
+    -- still wearing our clear mask is an INVISIBLE minimap, which is a far worse
+    -- failure than the wrong outline.
+    --
+    -- So if a suite gave it a square mask and a border, that's gone until the suite
+    -- redraws it, and it won't until a reload. SetEnabled says so out loud rather
+    -- than leaving someone staring at a round minimap in a square UI.
     if Minimap.SetMaskTexture then
         pcall(Minimap.SetMaskTexture, Minimap, ROUND_MASK)
     end
-    Minimap:EnableMouse(true)
+    Minimap:EnableMouse(wantMouse)
 
     saved = nil
     -- active was set false at the top, on purpose -- see the note there.
@@ -848,8 +966,24 @@ end
 
 -- The user-facing on/off: set the wish, then honor it.
 function Hud.SetEnabled(on)
+    local was = NS.db and NS.db.hudEnabled
     if NS.db then NS.db.hudEnabled = on and true or false end
     Hud.Refresh()
+
+    -- Turning it OFF is the moment somebody wants their own minimap back -- and what
+    -- we can give them is Blizzard's round one, not their suite's. Say so HERE and
+    -- not in Disable(), which also runs on every city and dungeon stand-down and
+    -- would turn a useful note into a nag. Once a session is plenty.
+    if was and not on and not reloadNudged then
+        local owner = Hud.MinimapOwner()
+        if owner then
+            reloadNudged = true
+            NS.Printf("|cffffcc00Your minimap is back.|r %s had styled it, and we can't repaint",
+                owner)
+            NS.Print("  that from here -- |cffffff00/reload|r restores its own look.")
+        end
+    end
+
     return active
 end
 

@@ -632,6 +632,13 @@ local function buildHudPage()
     noteL("The game's own tracking blips, live and exact, where you're looking. "
         .. "Costs the corner minimap while it's up (a map goes there instead).", 44)
 
+    placeL(makeCheck(L, "Leave the minimap alone if another addon runs it",
+        function() return NS.db.hudRespectOtherAddons end,
+        function(v) NS.db.hudRespectOtherAddons = v end))
+    noteL("ElvUI, EllesmereUI, SexyMap and the like style the same minimap the HUD "
+        .. "moves, so switching it on empties their corner. With this ticked, Eyes Up "
+        .. "asks once and stands down instead of taking it unasked.", 44)
+
     placeL(makeCheck(L, "Rotate to my facing", function() return NS.db.hudRotate end,
         function(v) NS.db.hudRotate = v; NS.Hud.ApplyLook() end))
     noteL("Up becomes the way you're facing, so a blip above centre is straight "

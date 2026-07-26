@@ -491,11 +491,28 @@ NS.defaults = {
     -- doesn't read them. It just puts them where they belong.
     --
     -- It costs you the minimap in your corner -- there is only one Minimap object
-    -- in the game and this IS it. That's a real trade, which is why it's off until
-    -- you ask. Requires Find Herbs / Find Minerals etc. to be on, because these
-    -- are literally those blips.
+    -- in the game and this IS it. That's a real trade, and it's on by default
+    -- because it's the whole pitch: nobody finds this addon by reading the options.
+    -- Requires Find Herbs / Find Minerals etc. to be on, because these are literally
+    -- those blips.
+    --
+    -- The exception is right below: if a UI suite is already running the minimap,
+    -- taking it unasked reads as "Eyes Up broke my UI", so we don't.
     -- -------------------------------------------------------------------------
     hudEnabled       = true,   -- "Blips in the middle of my screen" ON by default
+
+    -- ...unless somebody else got there first.
+    --
+    -- ElvUI, EllesmereUI, SexyMap and friends skin and position the same single
+    -- Minimap object the HUD relocates, so switching it on takes their minimap out
+    -- of the corner -- which is indistinguishable, from the player's chair, from us
+    -- having broken their UI. Somebody reported exactly that, and they were right to.
+    --
+    -- So we check once: if one of those is running, the HUD stays down and says why,
+    -- and `/eu hud on` is right there for anyone who wants it anyway. Asked once per
+    -- character, never again, whichever way it goes. Turn this off and Eyes Up takes
+    -- the minimap regardless of what else is installed. See Hud.MinimapOwner.
+    hudRespectOtherAddons = true,
 
     -- Stand the HUD down in cities and inns.
     --
