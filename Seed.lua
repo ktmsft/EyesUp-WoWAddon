@@ -1,3 +1,5 @@
+-- Eyes Up - Copyright (c) 2026 KTM (abitofmoss). All Rights Reserved.
+-- No redistribution or reuse of this code or assets without permission. See LICENSE.
 local addonName, NS = ...
 
 -- =============================================================================

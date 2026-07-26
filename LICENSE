@@ -1,21 +1,26 @@
-MIT License
+Eyes Up — Copyright (c) 2026 KTM (abitofmoss). All rights reserved.
 
-Copyright (c) 2026 KTM (abitofmoss)
+Eyes Up and its source code are the property of the author. It is a passion
+project in active development, shared so people can use it and see how it works —
+not as an open-source grant.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+You MAY:
+  * Download and use Eyes Up in World of Warcraft for your personal use.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+You MAY NOT, without the author's prior written permission:
+  * Copy, redistribute, re-upload, republish, or mirror Eyes Up or the
+    packaged addon, in whole or in part.
+  * Modify, adapt, or create derivative works from its code or assets.
+  * Reuse its code or assets in another project, or sell or sublicense them.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Want to build on it or collaborate? Reach out — I'm happy to talk.
+
+--------------------------------------------------------------------------------
+Third-party components
+
+Eyes Up includes data that is NOT the author's own work. The terms above do not
+apply to it:
+
+  * Species.lua is generated game data (gathering node names, types and
+    expansions) derived from World of Warcraft's own client data, which remains
+    the property of Blizzard Entertainment.

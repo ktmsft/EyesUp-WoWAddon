@@ -2,12 +2,12 @@
 ## Title: Eyes Up
 ## Notes: Watch the world, not the minimap. A quiet cue when something worth stopping for is near.
 ## Author: KTM (abitofmoss)
-## Version: 1.2.0
+## Version: 1.2.1
 ## SavedVariablesPerCharacter: EyesUpDB
 ## SavedVariables: EyesUpAccountDB
 ## IconTexture: Interface\ICONS\INV_Misc_Herb_16
 ## X-Category: Map & Minimap
-## X-License: MIT
+## X-License: All Rights Reserved
 ## OptionalDeps: GatherMate2_Data
 
 # Load order is load-bearing, not stylistic.
