@@ -200,6 +200,12 @@ StaticPopupDialogs["EYESUP_MINIMAP_TAKEN"] = {
 -- Stamped before any of the early-outs, so this asks once and then never again --
 -- whichever way it goes. Someone who wants the HUD on top of their suite turns it
 -- on and is left alone forever after.
+--
+-- TWO conditions have to hold for this to fire, and it's worth saying out loud
+-- because it makes the thing untestable if you forget: the stamp must be unset AND
+-- the HUD must be ON. After it fires once, BOTH are false -- so re-arming for a
+-- retest means clearing the stamp and turning the HUD back on. That's what
+-- `/eu hud compat reset` is for; it does both and re-runs the check on the spot.
 -- ---------------------------------------------------------------------------
 function Hud.CheckMinimapCompat()
     local db = NS.db
@@ -212,6 +218,13 @@ function Hud.CheckMinimapCompat()
     if not owner then return end
 
     db.hudEnabled = false
+
+    -- Take it down NOW, don't just record the wish. At login this was harmless --
+    -- Core calls Refresh a line later anyway -- but the moment anything else calls
+    -- this mid-session (a compat reset, say) the flag alone would leave a HUD up
+    -- that the database says is off. Refresh is idempotent, so the login path is
+    -- unchanged.
+    Hud.Refresh()
 
     -- The dialog is the part people will actually read. The chat line is the record
     -- underneath it, for whoever clicks Okay on reflex and wonders an hour later
