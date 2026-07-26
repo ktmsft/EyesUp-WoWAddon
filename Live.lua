@@ -137,7 +137,7 @@ end
 -- Soft-target offers EVERY interactable: herbs, ore, chests, doors, stools,
 -- your own fishing bobber. Take them all and knownNodes fills up with furniture
 -- -- which is precisely the mistake Vignettes.classify used to make, and the
--- reason CLAUDE.md insists an unrecognized thing is NOT A NODE.
+-- reason the rule everywhere in here is blunt: an unrecognized thing is NOT A NODE.
 --
 -- Same rule here, and the same default: unknown means ignore.
 --
@@ -231,8 +231,10 @@ end
 --
 -- The cue asks "did the nearest node CHANGE?" to decide whether to ping and
 -- whether to re-resolve the icon, and that question is only cheap if a node is
--- the same Lua table tick after tick (CLAUDE.md, "Node identity"). The GUID is
--- the stable per-instance identity of a game object while it's in front of you --
+-- the same Lua table tick after tick. That's node identity, and every source in
+-- this addon owes it: the table IS the key, so the check stays a pointer compare.
+--
+-- The GUID is the stable per-instance identity of a game object in front of you --
 -- unlike the object id, which two herbs of the same species share.
 -- ---------------------------------------------------------------------------
 local cache = {}

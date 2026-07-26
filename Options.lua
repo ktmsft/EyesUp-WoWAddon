@@ -34,6 +34,30 @@ local cueOnly = {}
 
 -- ---- small parts, made by hand ----------------------------------------------
 
+-- OUR OWN TOOLTIP, AND WHY IT'S WORTH A FRAME.
+--
+-- This used to drive GameTooltip, like nearly every addon does. Everything an addon
+-- does to GameTooltip happens under that addon's taint, and the taint sticks to the
+-- fields it writes -- including the widget-set bookkeeping GameTooltip's own OnHide
+-- clears when we hide it. Blizzard's code then reads those fields back from a world
+-- map quest pin an hour later, inherits our taint, and dies on the first value it
+-- isn't allowed to compare while tainted:
+--
+--     LayoutFrame.lua:491: attempt to compare a secret number value
+--     (execution tainted by 'EyesUp')
+--
+-- One hover over a settings button was enough to arm it, and the error surfaced
+-- somewhere with no connection to us. A private tooltip costs one frame and takes
+-- EyesUp out of that chain completely: we never touch the shared one.
+local tooltip
+local function getTooltip()
+    if not tooltip then
+        tooltip = CreateFrame("GameTooltip", "EyesUpTooltip", UIParent, "GameTooltipTemplate")
+        tooltip:SetFrameStrata("TOOLTIP")
+    end
+    return tooltip
+end
+
 local function setDimmed(control, enabled)
     if control.SetEnabled then control:SetEnabled(enabled) end
     if control.label then
@@ -171,15 +195,16 @@ local function makePriority(parent, nodeType)
     end)
 
     b:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(NS.NodeTypeLabel[nodeType] or nodeType)
-        GameTooltip:AddLine("When two things are in range at once, this decides which one gets the icon.",
+        local tip = getTooltip()
+        tip:SetOwner(self, "ANCHOR_RIGHT")
+        tip:AddLine(NS.NodeTypeLabel[nodeType] or nodeType)
+        tip:AddLine("When two things are in range at once, this decides which one gets the icon.",
             1, 1, 1, true)
-        GameTooltip:AddLine("|cffffd100High|r counts as half its real distance, |cff888888Low|r as double. It's a preference, not a filter -- to stop seeing a type entirely, untick it.",
+        tip:AddLine("|cffffd100High|r counts as half its real distance, |cff888888Low|r as double. It's a preference, not a filter -- to stop seeing a type entirely, untick it.",
             0.8, 0.8, 0.8, true)
-        GameTooltip:Show()
+        tip:Show()
     end)
-    b:SetScript("OnLeave", GameTooltip_Hide)
+    b:SetScript("OnLeave", function() getTooltip():Hide() end)
 
     return b
 end

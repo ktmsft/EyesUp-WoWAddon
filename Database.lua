@@ -109,8 +109,8 @@ end
 --     is not an angle in the world unless the zone happens to be square, and
 --     they mostly aren't.
 --
--- Convention is unchanged (clockwise from north), so the renderers' `relative =
--- bearing + facing` still cancels the way it always did. See CLAUDE.md.
+-- The convention is unchanged -- radians, clockwise from north -- so the renderers'
+-- `relative = bearing + facing` still cancels the way it always did.
 function Data.Bearing(mapID, x1, y1, x2, y2)
     local w, h = Data.MapSize(mapID)
     local east  = (x2 - x1) * w      -- +x = east

@@ -1,8 +1,8 @@
 ## Interface: 120007
 ## Title: Eyes Up
 ## Notes: Watch the world, not the minimap. A quiet cue when something worth stopping for is near.
-## Author: Kennedy Michel
-## Version: 1.1.2
+## Author: KTM (abitofmoss)
+## Version: 1.1.3
 ## SavedVariablesPerCharacter: EyesUpDB
 ## SavedVariables: EyesUpAccountDB
 ## IconTexture: Interface\ICONS\INV_Misc_Herb_16

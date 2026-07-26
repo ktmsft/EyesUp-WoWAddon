@@ -158,10 +158,9 @@ end
 -- cell is 0.02 of the map, comfortably wider than sixty yards in any real zone,
 -- so a tick looks at nine cells and about a dozen nodes.
 --
--- Node tables built here are STABLE and never rebuilt, which is the contract
--- every source owes (CLAUDE.md, "Node identity"): the table IS the identity key,
--- so Scan's stickiness and the cue's don't-re-resolve-the-icon check stay pointer
--- compares.
+-- Node tables built here are STABLE and never rebuilt, which is the node-identity
+-- contract every source owes: the table IS the identity key, so Scan's stickiness
+-- and the cue's don't-re-resolve-the-icon check stay pointer compares.
 -- ---------------------------------------------------------------------------
 local CELL = 0.02
 local grids = {}          -- grids[mapID] = { [cellKey] = { node, ... } }
