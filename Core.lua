@@ -285,7 +285,14 @@ function NS.SetSettingsShared(shared)
 
     NS.Printf("settings are now |cffffff00%s|r. Reloading to apply...",
         shared and "shared across all your characters" or "per-character")
-    C_Timer.After(1, C_UI and C_UI.Reload or ReloadUI)
+    -- Wrap the reload in a real function: passing `C_UI and C_UI.Reload or ReloadUI`
+    -- directly hands C_Timer.After a nil when neither name resolves on the running client
+    -- ("bad argument #2 to C_Timer.After"). A closure is always a function, and it calls
+    -- whichever reload API actually exists.
+    C_Timer.After(1, function()
+        if C_UI and C_UI.Reload then C_UI.Reload()
+        elseif ReloadUI then ReloadUI() end
+    end)
 end
 
 -- Park a note at wherever you're standing right now.

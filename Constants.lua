@@ -495,7 +495,7 @@ NS.defaults = {
     -- you ask. Requires Find Herbs / Find Minerals etc. to be on, because these
     -- are literally those blips.
     -- -------------------------------------------------------------------------
-    hudEnabled       = false,
+    hudEnabled       = true,   -- "Blips in the middle of my screen" ON by default
 
     -- Stand the HUD down in cities and inns.
     --
