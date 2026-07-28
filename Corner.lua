@@ -55,6 +55,19 @@ local MARKER_SIZE = 16
 local providersKilled = false   -- have we neutralised its (tainting) data providers
 local origAddDataProvider       -- saved so nothing can re-add a pin behind our back
 
+-- Borrowing and returning Blizzard's window is frame surgery, so it observes the
+-- same rule Hud.lua does: nothing structural during a fight. See the long note
+-- there. Deferred work is settled on PLAYER_REGEN_ENABLED at the foot of this file.
+local combatPending = false
+
+local function notNow()
+    if InCombatLockdown and InCombatLockdown() then
+        combatPending = true
+        return true
+    end
+    return false
+end
+
 -- It's a LoadOnDemand Blizzard addon, so it doesn't exist until somebody asks.
 local function acquire()
     if _G.BattlefieldMapFrame then return _G.BattlefieldMapFrame end
@@ -252,6 +265,10 @@ end
 -- ---------------------------------------------------------------------------
 function Corner.Enable()
     if active then return end
+    -- Reparenting and showing one of Blizzard's windows is the kind of thing the
+    -- client stops mid-combat. Same deal as the HUD: wait, then do it. The corner
+    -- map is only reachable while the HUD is up, and that waits too.
+    if notNow() then return end
     frame = acquire()
     if not frame then return end
 
@@ -315,6 +332,9 @@ function Corner.Disable()
         active = false
         return
     end
+    -- Handing the window back is surgery too. Leaving it parked for the rest of a
+    -- fight is harmless; erroring while somebody is being hit is not.
+    if notNow() then return end
 
     if follower then follower:Hide() end
     if marker then marker:Hide() end
@@ -348,3 +368,19 @@ function Corner.ApplyLook()
     frame:SetAlpha(NS.db.cornerAlpha or 1)
     follow()
 end
+
+-- Settling up: whatever we ducked in combat, decide it again now. Hud.lua's own
+-- flush usually gets here first (it loads earlier, so its handler runs first, and
+-- enabling the HUD enables us) -- both Enable and Disable early-out when there's
+-- nothing to do, so arriving second is a no-op rather than a fight.
+local combatWatch = CreateFrame("Frame")
+combatWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatWatch:SetScript("OnEvent", function()
+    if not combatPending then return end
+    combatPending = false
+    if NS.db and NS.db.cornerMap and NS.Hud and NS.Hud.IsActive() then
+        Corner.Enable()
+    else
+        Corner.Disable()
+    end
+end)

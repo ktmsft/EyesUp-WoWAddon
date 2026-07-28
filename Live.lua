@@ -65,9 +65,8 @@ local Seed = NS.Seed
 -- So we turn it on -- and we are honest that this is somebody's game settings we
 -- are touching. Arc 2 means the soft target can be BEHIND you, which is the whole
 -- point (the thing you rode past without seeing is exactly the thing worth
--- mentioning). We leave SoftTargetInteractRange alone: we measured that raising
--- it does nothing for game objects, so changing it would be pure side-effect for
--- no benefit.
+-- mentioning). Range follows the detection slider -- see the long note on Enable
+-- for why we ask for the full reach instead of assuming a cap.
 --
 -- We snapshot what was there before and put it back on logout. `db.manageSoftTarget`
 -- turns the whole business off for anyone who'd rather set it themselves.
@@ -79,14 +78,35 @@ local CVARS = { "SoftTargetInteract", "SoftTargetInteractArc", "SoftTargetIntera
 
 local saved, held = {}, false
 
+-- These three are PROTECTED CVars: they steer what your Interact key grabs, so the
+-- client refuses to let an addon write them while you're in combat and shouts
+-- ADDON_ACTION_BLOCKED instead. Reading is fine; only writing is barred.
+--
+-- Every write in this file goes through here, and every one of them is something we
+-- can simply do later -- so in combat we drop the write, remember that we owe one,
+-- and settle up the moment the fight ends. Nothing is lost; it just arrives late.
+local deferred = false
+
+local function writeCVar(name, value)
+    if not SetCVar then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        deferred = true
+        return false
+    end
+    SetCVar(name, value)
+    return true
+end
+
 function Live.Enable()
     if held or not SetCVar then return end
     if not (NS.db and NS.db.manageSoftTarget) then return end
-
+    -- Snapshot first (reads are never blocked), but don't claim to be holding
+    -- their settings until we've actually managed to change one.
     for _, c in ipairs(CVARS) do saved[c] = GetCVar(c) end
+    if InCombatLockdown and InCombatLockdown() then deferred = true return end
 
-    SetCVar("SoftTargetInteract", 3)      -- always on, not just for gamepads
-    SetCVar("SoftTargetInteractArc", 2)   -- any direction: the node you rode PAST
+    writeCVar("SoftTargetInteract", 3)    -- always on, not just for gamepads
+    writeCVar("SoftTargetInteractArc", 2) -- any direction: the node you rode PAST
                                           -- is exactly the one worth mentioning
 
     -- ASK FOR THE FULL DETECTION RADIUS, and let the engine give what it will.
@@ -103,7 +123,7 @@ function Live.Enable()
     -- what the ceiling is instead of us imposing one. Costs nothing to ask.
     local want = (NS.db.detectionYards or 60)
     if want < 10 then want = 10 elseif want > 100 then want = 100 end
-    SetCVar("SoftTargetInteractRange", want)
+    writeCVar("SoftTargetInteractRange", want)
 
     held = true
 end
@@ -114,16 +134,27 @@ function Live.SyncRange()
     if not (held and SetCVar and NS.db) then return end
     local want = NS.db.detectionYards or 60
     if want < 10 then want = 10 elseif want > 100 then want = 100 end
-    SetCVar("SoftTargetInteractRange", want)
+    writeCVar("SoftTargetInteractRange", want)
 end
 
 function Live.Restore()
     if not (held and SetCVar) then return end
     for _, c in ipairs(CVARS) do
-        if saved[c] ~= nil then SetCVar(c, saved[c]) end
+        if saved[c] ~= nil then writeCVar(c, saved[c]) end
     end
     held = false
 end
+
+-- Settling up. Anything we couldn't write mid-fight gets written now -- and if we
+-- never got to Enable at all (logged in straight into combat, which is what a
+-- battleground start looks like), do the whole thing now.
+local watcher = CreateFrame("Frame")
+watcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+watcher:SetScript("OnEvent", function()
+    if not deferred then return end
+    deferred = false
+    if held then Live.SyncRange() else Live.Enable() end
+end)
 
 -- Is soft targeting actually on, whoever turned it on? If this is false, mode
 -- "confirmed" has nothing to work with and the cue will never fire -- which is a

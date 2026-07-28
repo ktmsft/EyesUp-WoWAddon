@@ -260,10 +260,21 @@ local function makeSlider(parent, label, minV, maxV, step, getter, setter, fmt)
     val:SetPoint("TOP", s, "BOTTOM", 0, 0)
     s.label = title
     local function paint(v) title:SetText(label); val:SetText((fmt or "%.2f"):format(v)) end
+    -- SetValue fires OnValueChanged, so a plain repaint used to run the full setter
+    -- path -- writing the db and re-applying every layout -- as if you'd dragged the
+    -- slider yourself. Painting is not input. Mute the handler while we do it.
+    local painting = false
     s:SetScript("OnValueChanged", function(self, v)
+        if painting then return end
         setter(v); paint(v); Options.SyncLayout()
     end)
-    s.Refresh = function() local v = getter(); s:SetValue(v); paint(v) end
+    s.Refresh = function()
+        local v = getter()
+        painting = true
+        s:SetValue(v)
+        painting = false
+        paint(v)
+    end
     return s
 end
 

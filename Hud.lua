@@ -76,6 +76,32 @@ local reloadNudged = false    -- the "reload to get your skin back" note is a on
 -- shape back is to know its name.
 local ROUND_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 
+-- ---------------------------------------------------------------------------
+-- NOT DURING A FIGHT.
+--
+-- Everything this file does is surgery on frames that are Blizzard's: reparenting
+-- the Minimap, hiding the cluster, writing rotateMinimap. In combat the client
+-- refuses some of that outright -- protected frames can't be restructured, secure
+-- CVars can't be written -- and the answer is ADDON_ACTION_BLOCKED in your face.
+--
+-- Live.lua learned this the hard way with SoftTargetInteractRange. Same rule here,
+-- and the same shape of answer: in combat we do nothing and remember that we owe
+-- the player a pass, then run it when the fight ends.
+--
+-- This is barely a compromise. Rearranging somebody's minimap while they're being
+-- hit is not a thing anyone wanted; a few seconds' wait is the better behaviour
+-- even where the client would have allowed it.
+-- ---------------------------------------------------------------------------
+local combatPending = false
+
+local function notNow()
+    if InCombatLockdown and InCombatLockdown() then
+        combatPending = true
+        return true
+    end
+    return false
+end
+
 function Hud.IsActive()
     return active
 end
@@ -637,6 +663,7 @@ end
 -- ---------------------------------------------------------------------------
 function Hud.Enable()
     if active or not Minimap then return end
+    if notNow() then return end
     local db = NS.db
     if not db then return end
 
@@ -703,6 +730,10 @@ end
 -- ---------------------------------------------------------------------------
 function Hud.Disable()
     if not active or not Minimap then return end
+    -- Giving the minimap back is as much frame surgery as taking it was, so it
+    -- waits too. The HUD stays up for the rest of the fight; nobody is gathering
+    -- mid-pull anyway.
+    if notNow() then return end
 
     -- FIRST, before we touch anything: the button SetPoint hook keys off `active`,
     -- and restoreArt is about to re-point every button back to the Minimap. Leave
@@ -1053,6 +1084,10 @@ end
 
 function Hud.ApplyLook()
     if not active then return end
+    -- Sizing and re-masking the Minimap is frame surgery, and applyRotation writes
+    -- a CVar. Both wait for the fight to end -- including when the CVAR_UPDATE
+    -- watcher fires mid-combat, which is the path nobody would think to test.
+    if notNow() then return end
     local db = NS.db
     if not db then return end
 
@@ -1167,6 +1202,13 @@ function Hud.SetEnabled(on)
     if NS.db then NS.db.hudEnabled = on and true or false end
     Hud.Refresh()
 
+    -- The wish is recorded either way, but if we're in combat nothing visible
+    -- happened -- and a keybind that silently does nothing reads as broken. Say so.
+    if InCombatLockdown and InCombatLockdown() then
+        NS.Print(on and "eyes up when this fight ends." or "minimap comes back when this fight ends.")
+        return active
+    end
+
     -- Turning it OFF is the moment somebody wants their own minimap back -- and what
     -- we can give them is Blizzard's round one, not their suite's. Say so HERE and
     -- not in Disable(), which also runs on every city and dungeon stand-down and
@@ -1198,6 +1240,19 @@ restWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
 restWatch:SetScript("OnEvent", function()
     -- next frame: IsResting()/IsInInstance() can lag the event by a tick
     C_Timer.After(0, Hud.Refresh)
+end)
+
+-- Settling up. Every path that gave up in combat -- a zone change, the keybind, a
+-- checkbox, the CVar watcher -- collapses to the same two questions: should the HUD
+-- be up, and does it look right. Ask both, once, and everything that was owed lands
+-- together.
+local combatWatch = CreateFrame("Frame")
+combatWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatWatch:SetScript("OnEvent", function()
+    if not combatPending then return end
+    combatPending = false
+    Hud.Refresh()
+    if active then Hud.ApplyLook() end
 end)
 
 -- ---------------------------------------------------------------------------
