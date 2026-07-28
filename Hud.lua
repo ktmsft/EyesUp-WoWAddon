@@ -179,43 +179,58 @@ function Hud.MinimapOwner()
         end
     end
 
-    -- The nameless check. Careful about WHEN this is asked: while the HUD is up the
-    -- minimap is parented to UIParent by us, so this would happily report ourselves.
-    -- Both callers ask while it's down.
+    -- THE NAMELESS CHECK -- and it has to walk the ANCESTORS, not test the parent.
+    --
+    -- The first cut of this compared Minimap:GetParent() against MinimapCluster and
+    -- MinimapBackdrop and treated anything else as a claim. That was a bet that
+    -- Blizzard's own frame hierarchy would never change shape, and in 12.0 it did:
+    -- the Minimap now hangs off an ANONYMOUS container inside the cluster. The
+    -- comparison failed, GetName() on the container came back nil, and the check fell
+    -- through to "another addon" -- on a stock UI, with no minimap addon installed at
+    -- all. It switched the HUD off on people who had asked for it and put a dialog up
+    -- blaming an addon that did not exist.
+    --
+    -- So ask the question that actually matters. The cluster is where Blizzard keeps
+    -- its minimap. If the map is still SOMEWHERE underneath it -- however many
+    -- containers deep, whatever they're called -- nobody has taken it. Only a map
+    -- lifted clean out of the cluster has been claimed. That answer survives Blizzard
+    -- rearranging the inside of their own cluster, which is the failure this had.
+    --
+    -- Gone with it: the two checks that read the CLUSTER's own state (hidden, or
+    -- faded below full alpha) and called either one a claim. Reparenting isn't the
+    -- only way to take a minimap and those caught the rest -- but they also caught the
+    -- player's own Edit Mode choices and every addon that tidies the corner without
+    -- touching the map. Standing the headline feature down needs better evidence than
+    -- a faded frame, and the suites that restyle in place are on the name list above.
+    --
+    -- Careful about WHEN this is asked: while the HUD is up the minimap is parented to
+    -- UIParent by us, so it would happily report ourselves. Both callers ask while
+    -- it's down.
     if not active and Minimap and MinimapCluster and Minimap.GetParent then
-        local p = Minimap:GetParent()
-        if p and p ~= MinimapCluster and p ~= _G.MinimapBackdrop then
-            -- A named holder is worth repeating back ("ElvUI_MinimapHolder" tells the
-            -- player exactly who). UIParent is not: it's where every suite that can't
-            -- be bothered to build a holder drops it -- EllesmereUI among them -- and
-            -- "UIParent is running your minimap" tells nobody anything.
-            local n = p.GetName and p:GetName()
-            if n and n ~= "UIParent" then return n end
-            return "another addon"
+        -- The depth cap is paranoia about a parent loop, not about the hierarchy --
+        -- Blizzard's is two or three deep.
+        local holder, p, depth = nil, Minimap:GetParent(), 0
+
+        while p and depth < 12 do
+            if p == MinimapCluster then return nil end   -- still Blizzard's; nobody took it
+
+            -- Note the first named frame on the way up, but keep climbing -- the name
+            -- is only worth anything if we come out the top WITHOUT meeting the
+            -- cluster. A real holder tells the player exactly who ("ElvUI_MinimapHolder").
+            -- UIParent doesn't: it's where every suite that can't be bothered to build
+            -- a holder drops it -- EllesmereUI among them -- and "UIParent is running
+            -- your minimap" tells nobody anything.
+            if not holder then
+                local n = p.GetName and p:GetName()
+                if n and n ~= "UIParent" then holder = n end
+            end
+
+            p = p.GetParent and p:GetParent() or nil
+            depth = depth + 1
         end
 
-        -- THE CORNER ITSELF, which catches what the parent check can't.
-        --
-        -- Reparenting is only one way to claim a minimap. An addon that restyles and
-        -- repositions it IN PLACE never touches the parent, and the check above sails
-        -- straight past it. What such an addon almost always does do is deal with
-        -- Blizzard's cluster -- the border, the tracking button, the clock -- because
-        -- it's drawing its own.
-        --
-        -- Blizzard ships MinimapCluster shown and fully opaque and leaves it that way,
-        -- so either of these means somebody has been at it. EllesmereUI fades rather
-        -- than hides (SetAlpha(0), still shown), which is exactly why testing both
-        -- matters -- and it means we'd have caught EllesmereUI with the name list
-        -- entirely empty.
-        --
-        -- Safe in the one place it could bite: Eyes Up hides the cluster itself when
-        -- hudKeepCorner is off, and this whole block is behind `not active`.
-        if MinimapCluster.IsShown and not MinimapCluster:IsShown() then
-            return "another addon"
-        end
-        if MinimapCluster.GetAlpha and MinimapCluster:GetAlpha() < 1 then
-            return "another addon"
-        end
+        -- Out the top without passing through the cluster: the map has been moved.
+        return holder or "another addon"
     end
 end
 
@@ -235,8 +250,22 @@ end
 -- this goes, so offering to suppress a thing that was never going to repeat would
 -- be a lie about what the alternative was. The second button does something useful
 -- instead -- it turns the HUD on.
+--
+-- NEVER ASSIGN StaticPopupDialogs ITSELF -- not even `= StaticPopupDialogs or {}`.
+--
+-- Setting our own KEY in the table is the safe half, and always was. Writing the
+-- GLOBAL is what breaks things: assigning a Blizzard global from addon code stamps
+-- that global with our taint for the rest of the session, and every piece of
+-- Blizzard code that reads it afterwards inherits the stamp. Popups are read from
+-- all over the UI, the Escape / game-menu path included, and a tainted execution
+-- there is refused the protected calls it needs -- ClearTarget when you press
+-- Escape with a target, Quit when you click "Exit Game".
+--
+-- What the player sees is an Escape key that throws ADDON_ACTION_FORBIDDEN and a
+-- game they cannot log out of, and there is no way to guess from either symptom
+-- that a minimap addon caused it. Blizzard's UI builds this table long before any
+-- addon loads, so the `or {}` was never protecting against anything anyway.
 -- ---------------------------------------------------------------------------
-StaticPopupDialogs = StaticPopupDialogs or {}
 StaticPopupDialogs["EYESUP_MINIMAP_TAKEN"] = {
     text = "|cff66ff66Eyes Up|r\n\n"
         .. "%s is running your minimap, so the blip HUD has been left off.\n\n"

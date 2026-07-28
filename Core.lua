@@ -421,6 +421,35 @@ ev:SetScript("OnEvent", function(_, event, ...)
         Data.nodes = db.nodes              -- these tables ARE the saved data now
 
         -- ---------------------------------------------------------------------
+        -- One-time: undo a compat verdict that was never true.
+        --
+        -- Up to 1.2.1 the minimap-owner check compared Minimap:GetParent() against
+        -- MinimapCluster directly. 12.0 put an anonymous container in between, so on
+        -- a stock UI with nothing installed the check answered "another addon",
+        -- switched the HUD off, and stamped the verdict so it would never ask again.
+        -- Everyone it caught is sitting on a feature they asked for, turned off on
+        -- their behalf, with a stamp saying not to mention it.
+        --
+        -- The stamp is the tell. A nameless "another addon" is what the broken check
+        -- produced, so clear it and give the HUD back. This can't overreach: the
+        -- stamp is only ever written in the same breath as hudEnabled = false, so
+        -- anybody carrying one had the HUD on when it fired. And the fixed check runs
+        -- half a second into login anyway -- if a suite really is in the way it will
+        -- stand down again, properly, and ask.
+        --
+        -- Deliberately NOT a key in NS.defaults -- same reasoning as identityVersion
+        -- below: a default would hand every install the "already handled" mark.
+        -- ---------------------------------------------------------------------
+        if not db.compatVerdictRepaired then
+            db.compatVerdictRepaired = true
+            if db.hudCompatAsked == "another addon" then
+                db.hudCompatAsked = nil
+                db.hudEnabled     = true
+                NS.compatRestored = true
+            end
+        end
+
+        -- ---------------------------------------------------------------------
         -- One-time: the filter list changed what it identifies things BY.
         --
         -- It used to key on the item a node dropped, so mining was listed as
@@ -502,6 +531,15 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if NS.pruned then
             NS.Print("|cff88ff88Nodes are now listed by species (\"Copper Vein\"), not by what they")
             NS.Print("drop (\"Copper Ore\"), so the old list was cleared. It refills as you fly.|r")
+        end
+        if NS.compatRestored then
+            -- One call, not three. Chat stamps the "Eyes Up" tag on every message it
+            -- is handed, so a message broken across three of them wears the tag three
+            -- times and wraps badly. Hand it the whole thing and let chat wrap it.
+            NS.Print("|cff88ff88The blip HUD is back on -- it had been switched off by a "
+                .. "compatibility check that misread this game version and thought another "
+                .. "addon was running your minimap. Nothing was.|r "
+                .. "|cffffff00/eu hud off|r if you'd rather it stayed off.")
         end
         if NS.Seed.IsAvailable() then
             NS.Print("|cff88ff88GatherMate2_Data found — the cue works in zones you've never farmed.|r")
