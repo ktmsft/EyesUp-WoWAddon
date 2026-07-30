@@ -432,11 +432,20 @@ end
 -- So we sweep, repeatedly, while the HUD is up. It's a handful of buttons a couple
 -- of times a second: nothing.
 --
--- The offsets can't be reused as-is -- LibDBIcon computed them for a 400px map, so
--- they'd fling the buttons half a screen away from a 140px tray. What we keep is
--- the ANGLE (which is what the player actually chose when they dragged it) and we
--- recompute the radius for the tray. They land back around the corner exactly where
--- they were.
+-- WE KEEP THE ANCHOR, NOT AN ANGLE. This used to store only the angle a button sat
+-- at and rebuild every position from it -- on the tray AND on the way back out. That
+-- is right for exactly one kind of button (a LibDBIcon icon orbiting the ring) and
+-- wrong for every other kind, because an angle cannot describe "TOPRIGHT of the
+-- cluster, minus eight pixels". Anything that wasn't orbiting got flung onto the
+-- ring and left there, so turning the HUD off handed back a corner full of icons
+-- the player never arranged.
+--
+-- So we snapshot every anchor verbatim and put it back verbatim. The tray is the
+-- same size and in the same place as the minimap was, so while the HUD is up we can
+-- simply replay those anchors with the tray standing in for the Minimap and every
+-- button lands on the pixel it was already on.
+--
+-- The angle survives for LibDBIcon only, and only while parked -- see adopt().
 -- ---------------------------------------------------------------------------
 local atan2, cos, sin, rad = math.atan2, math.cos, math.sin, math.rad
 
@@ -444,6 +453,9 @@ local atan2, cos, sin, rad = math.atan2, math.cos, math.sin, math.rad
 -- of Minimap -- the expansion "gem" is under MinimapBackdrop, the queue eye and the
 -- garrison button float around the cluster. Name them so the patrol can find them
 -- wherever they're parented.
+--
+-- Naming a button here only means "go and look at it". followsMinimap() has the
+-- final say, and for the queue eye the answer is usually no.
 local BLIZZ_BUTTONS = {
     "ExpansionLandingPageMinimapButton",   -- the purple expansion gem
     "GarrisonLandingPageMinimapButton",
@@ -451,14 +463,90 @@ local BLIZZ_BUTTONS = {
     "MiniMapMailFrame",                    -- the "you have mail" flag
 }
 
--- Put a button where it belongs on the tray, from the angle it was sitting at.
+-- Is this frame the Minimap, or something living inside it?
+local function underMinimap(f)
+    local depth = 0
+    while f and depth < 12 do
+        if f == Minimap then return true end
+        f = f.GetParent and f:GetParent() or nil
+        depth = depth + 1
+    end
+    return false
+end
+
+-- ---------------------------------------------------------------------------
+-- DOES THIS BUTTON ACTUALLY TRAVEL WITH THE MAP?
+--
+-- The bug that prompted this: the Dungeon Finder eye. BLIZZ_BUTTONS named it, so we
+-- parked it on the tray unconditionally -- but QueueStatusButton is placed by Edit
+-- Mode and can live anywhere on screen. It was never anchored to the Minimap, so it
+-- was never going to follow the HUD anywhere. All we did was take a button the
+-- player had deliberately positioned and stick it on the minimap ring.
+--
+-- Only two things move when the Minimap moves: its children, and anything anchored
+-- to it. Everything else we leave alone -- there is nothing to rescue it from.
+--
+-- Edit Mode frames are out regardless. Those own their own position, the player set
+-- it in a UI built for the purpose, and Edit Mode re-applies its layout on its own
+-- schedule -- so moving one is both rude and a fight we'd lose.
+-- ---------------------------------------------------------------------------
+local function followsMinimap(btn)
+    -- Parentage first, and it beats everything below it. A child of the Minimap is
+    -- carried to the middle of the screen whether Edit Mode has opinions or not, so
+    -- refusing to park it wouldn't leave it alone -- it would just abandon it out
+    -- there, invisible, with its textures swept up by hideLuaTextures.
+    if underMinimap(btn:GetParent()) then return true end
+
+    if btn.IsInDefaultPosition then return false end     -- an Edit Mode system; not ours
+
+    for i = 1, (btn.GetNumPoints and btn:GetNumPoints() or 0) do
+        local _, rel = btn:GetPoint(i)
+        if underMinimap(rel) then return true end
+    end
+    return false
+end
+
+-- Every anchor a button is wearing, so we can put it back exactly as we found it.
+local function capturePoints(btn)
+    local pts = {}
+    for i = 1, (btn.GetNumPoints and btn:GetNumPoints() or 0) do
+        local p, rel, rp, x, y = btn:GetPoint(i)
+        pts[#pts + 1] = { p, rel, rp, x or 0, y or 0 }
+    end
+    return pts
+end
+
+-- Replay a captured anchor list. With `swapTo`, anything anchored to the Minimap is
+-- anchored to that instead -- which is how a button keeps its exact position in the
+-- corner while the map it was pinned to is off in the middle of the screen.
+--
+-- underMinimap, not `== Minimap`: a button anchored to something INSIDE the map
+-- (MinimapBackdrop, in the client versions that put it there) has been carried off
+-- to the screen centre just the same. The tray is the same size and place, so
+-- standing it in for a child frame is a close approximation rather than an exact
+-- one -- and an approximation in the corner beats an exact answer in the middle of
+-- your screen.
+local function replay(btn, pts, swapTo)
+    btn:ClearAllPoints()
+    for _, pt in ipairs(pts) do
+        local rel = pt[2]
+        if swapTo and underMinimap(rel) then rel = swapTo end
+        btn:SetPoint(pt[1], rel or btn:GetParent() or UIParent, pt[3], pt[4], pt[5])
+    end
+end
+
+-- Put a parked button where it belongs on the tray.
 local function reanchor(btn)
     local m = moved[btn]
     if not (m and tray) then return end
-    local r = (tray:GetWidth() / 2) + 10
     reanchoring = true                     -- so our own SetPoint doesn't re-trigger the hook
-    btn:ClearAllPoints()
-    btn:SetPoint("CENTER", tray, "CENTER", cos(m.angle) * r, sin(m.angle) * r)
+    if m.angle then
+        local r = (tray:GetWidth() / 2) + 10
+        btn:ClearAllPoints()
+        btn:SetPoint("CENTER", tray, "CENTER", cos(m.angle) * r, sin(m.angle) * r)
+    else
+        replay(btn, m.points, tray)
+    end
     reanchoring = false
 end
 
@@ -477,12 +565,38 @@ end
 local function adopt(btn)
     if not (btn and btn.SetParent and btn:IsShown()) then return end
 
+    -- Nothing to rescue it from? Then leave it exactly where it is. Once we HAVE
+    -- adopted it the test can't answer any more (it's on the tray now), so a button
+    -- we already own stays owned until the HUD comes down.
+    if not (moved[btn] or followsMinimap(btn)) then return end
+
     if not moved[btn] then
-        local _, _, _, x, y = btn:GetPoint(1)
+        local p, rel, rp, x, y = btn:GetPoint(1)
         moved[btn] = {
             parent = btn:GetParent(),
-            angle  = (x and y and (x ~= 0 or y ~= 0)) and atan2(y, x) or rad(225),
+            strata = btn:GetFrameStrata(),
+            points = capturePoints(btn),
+
+            -- LibDBIcon's orbit, and nothing else: CENTER on the Minimap's CENTER
+            -- with an offset. It gets the angle treatment because its offsets are
+            -- not stable -- LibDBIcon recomputes the radius from Minimap:GetWidth()
+            -- every time it touches the button, so with the HUD up they're sized for
+            -- a 400px map and replaying them would fling the icon half a screen off
+            -- the tray. The angle is the part the player actually chose; we keep
+            -- that and recompute the radius for the tray.
+            --
+            -- Note this is only used while parked. Coming back out we replay the
+            -- captured anchors like everything else, because by then the real
+            -- offsets are correct again.
+            angle = (p == "CENTER" and rp == "CENTER" and rel == Minimap
+                     and x and y and (x ~= 0 or y ~= 0)) and atan2(y, x) or nil,
         }
+
+        -- A Minimap child with no anchors at all has nothing to replay, so give it
+        -- the orbit treatment rather than dropping it on the tray's centre.
+        if #moved[btn].points == 0 and not moved[btn].angle then
+            moved[btn].angle = rad(225)
+        end
     end
 
     btn:SetParent(tray)
@@ -495,6 +609,18 @@ local function adopt(btn)
             -- Only fight for it while the HUD is up and we still own this button;
             -- otherwise let LibDBIcon place it normally.
             if active and not reanchoring and moved[self] then
+                local m = moved[self]
+                -- If that was the player dragging a LibDBIcon button, take the new
+                -- angle with us -- otherwise a drag while the HUD is up silently
+                -- does nothing. The radius still gets thrown away; it's sized for
+                -- the 400px map.
+                if m.angle then
+                    local p, rel, rp, x, y = self:GetPoint(1)
+                    if p == "CENTER" and rp == "CENTER" and rel == Minimap
+                       and x and y and (x ~= 0 or y ~= 0) then
+                        m.angle = atan2(y, x)
+                    end
+                end
                 reanchor(self)
             end
         end)
@@ -633,15 +759,32 @@ local function restoreArt()
     -- Quest/task blobs back to Blizzard's defaults (best-effort; /reload is exact).
     setBlobAlpha(1)
 
-    -- Hand the buttons back to the Minimap at the angle they were sitting at.
-    -- LibDBIcon will re-place them properly the next time it touches them, and the
-    -- minimap is back at its own size by now, so this is already right.
+    -- Hand the buttons back the way we found them: same parent, same strata, same
+    -- anchors, to the pixel.
+    --
+    -- This used to re-place everything on a ring around the Minimap at the angle it
+    -- had been sitting at, which is a fine description of a LibDBIcon icon and a
+    -- terrible one for anything else. Buttons that had never been on the ring got
+    -- put on it, and stayed there, so switching the HUD off in a city left the
+    -- corner rearranged. The captured anchors say exactly where each one belongs, so
+    -- use those and only fall back to the ring for a button that had none.
     for btn, m in pairs(moved) do
         if btn and btn.SetParent then
             btn:SetParent(m.parent or Minimap)
-            btn:ClearAllPoints()
-            local r = (Minimap:GetWidth() / 2) + 10
-            btn:SetPoint("CENTER", Minimap, "CENTER", cos(m.angle) * r, sin(m.angle) * r)
+            if m.strata then btn:SetFrameStrata(m.strata) end
+            if m.points and #m.points > 0 then
+                replay(btn, m.points)
+            else
+                -- saved.w, NOT Minimap:GetWidth(). We run BEFORE Disable() puts the
+                -- map back to its own size, so asking the map gives us 400 and a
+                -- 210px orbit around a 140px minimap -- icons strewn well outside
+                -- the ring. The old code read the live width here and that is a good
+                -- part of what the corner looked like afterwards.
+                local r = ((saved and saved.w or Minimap:GetWidth()) / 2) + 10
+                local a = m.angle or rad(225)
+                btn:ClearAllPoints()
+                btn:SetPoint("CENTER", Minimap, "CENTER", cos(a) * r, sin(a) * r)
+            end
         end
     end
     wipe(moved)
