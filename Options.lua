@@ -741,6 +741,13 @@ local function buildHudPage()
         function() return NS.db.cornerZoom end,
         function(v) NS.db.cornerZoom = v; if NS.Corner then NS.Corner.ApplyLook() end end), 44)
 
+    placeR(makeCheck(R, "Round off the corner map",
+        function() return (NS.db.cornerShape or "circle") ~= "square" end,
+        function(v)
+            NS.db.cornerShape = v and "circle" or "square"
+            if NS.Corner then NS.Corner.ApplyShape() end
+        end))
+
     -- GONE: "Soft edge (fade at the rim)", which flipped hudMask between "vignette"
     -- and "clear". Neither position works any more. The mask is a GATE on 12.1 --
     -- wherever it's transparent there are no blips either -- so a rim that fades to

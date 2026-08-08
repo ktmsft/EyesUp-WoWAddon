@@ -261,6 +261,115 @@ local function follow()
 end
 
 -- ---------------------------------------------------------------------------
+-- SHAPING IT.
+--
+-- The hole this sits in is round -- Hud's tray paints a disc masked with MASK_ROUND
+-- -- and a square map in a round hole reads as unfinished rather than deliberate.
+--
+-- Masking a MapCanvas is NOT the one-liner it is for the Minimap. SetMaskTexture is
+-- a Texture method and BattlefieldMapFrame is a Frame, so there is nothing to call
+-- it on. What works is the other half of the same system: one MaskTexture region,
+-- added to every terrain texture on the canvas with Texture:AddMaskTexture.
+--
+-- Which means finding them, and then finding them AGAIN. The canvas builds its
+-- detail tiles from a pool and re-lays them out on every pan and every zone change,
+-- so a one-shot at Enable masks whatever existed at that instant and nothing after
+-- -- you'd get a clean circle that grew square corners the moment you walked. Same
+-- shape of problem as the button patrol in Hud.lua, and the same answer: sweep, on
+-- the tick we are already running, and remember what we've done so it stays cheap.
+--
+-- WE WALK FOR TEXTURES rather than reaching for frame.detailLayerPool and
+-- layer.textures. Those are Blizzard's internal names for Blizzard's internal
+-- shapes, and this addon has been bitten once already by a hierarchy changing
+-- underneath it (see the 12.0 note in Hud.MinimapOwner). A recursive walk needs no
+-- names and survives them being renamed.
+--
+-- CLAMPTOBLACKADDITIVE is load-bearing. Tiles extend past the frame while the
+-- canvas is panned; without clamping, everything beyond the mask's own rectangle is
+-- left UNMASKED, and the map spills its corners out over the tray exactly where the
+-- circle was supposed to end.
+-- ---------------------------------------------------------------------------
+local shapeMask
+local maskedTex = {}            -- textures we've already masked; AddMaskTexture twice
+                                -- on one texture is waste, and there's a hard cap on
+                                -- how many masks a texture will take.
+local sinceShape = 0
+
+-- nil means "no shape" -- a square map, the way Blizzard draws it.
+local function shapeArt()
+    local shape = (NS.db and NS.db.cornerShape) or "circle"
+    if shape == "square" then return nil end
+    return NS.CustomGlyphDir .. "MASK_ROUND"
+end
+
+-- Where the terrain actually lives. GetCanvas is the sanctioned accessor; the
+-- ScrollContainer.Child fallback is what it returns anyway, for a client where it
+-- doesn't exist.
+local function canvasRoot()
+    if not frame then return nil end
+    if frame.GetCanvas then
+        local ok, c = pcall(frame.GetCanvas, frame)
+        if ok and c then return c end
+    end
+    return frame.ScrollContainer and frame.ScrollContainer.Child or frame
+end
+
+local function clearShape()
+    if shapeMask then
+        for r in pairs(maskedTex) do
+            if r.RemoveMaskTexture then pcall(r.RemoveMaskTexture, r, shapeMask) end
+        end
+    end
+    wipe(maskedTex)
+end
+
+local function ensureShapeMask()
+    local art = shapeArt()
+    local tray = _G.EyesUpMinimapTray
+    if not (art and tray) then return nil end
+
+    if not shapeMask then
+        if not tray.CreateMaskTexture then return nil end
+        shapeMask = tray:CreateMaskTexture()
+    end
+    shapeMask:SetTexture(art, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    shapeMask:ClearAllPoints()
+    -- The tray, not the map: same rect (Enable sizes the map to it), but the tray is
+    -- ours and outlives the map being handed back.
+    shapeMask:SetAllPoints(tray)
+    return shapeMask
+end
+
+local function shapeWalk(obj, depth)
+    if not obj or depth > 6 then return end
+    if obj.GetRegions then
+        for _, r in ipairs({ obj:GetRegions() }) do
+            if not maskedTex[r] and r.GetObjectType and r:GetObjectType() == "Texture"
+               and r.AddMaskTexture then
+                if pcall(r.AddMaskTexture, r, shapeMask) then maskedTex[r] = true end
+            end
+        end
+    end
+    if obj.GetChildren then
+        for _, c in ipairs({ obj:GetChildren() }) do shapeWalk(c, depth + 1) end
+    end
+end
+
+local function shapeSweep()
+    if not (active and frame) then return end
+    if not ensureShapeMask() then return end     -- square, or no mask support
+    shapeWalk(canvasRoot(), 0)
+end
+
+-- Called when the setting changes: drop what we did and do it again from scratch,
+-- because going circle -> square has to actively REMOVE masks, not merely stop
+-- adding them.
+function Corner.ApplyShape()
+    clearShape()
+    if active then shapeSweep() end
+end
+
+-- ---------------------------------------------------------------------------
 -- On
 -- ---------------------------------------------------------------------------
 function Corner.Enable()
@@ -311,14 +420,25 @@ function Corner.Enable()
     active = true
 
     follow()
+    shapeSweep()
 
     if not follower then
         follower = CreateFrame("Frame")
-        -- EVERY frame, not throttled. At 10/sec the player visibly drifted toward
-        -- the edge between updates while flying, then snapped back. The pan is a
-        -- cheap call, so just keep it pinned.
-        follower:SetScript("OnUpdate", function()
-            if active then follow() end
+        -- The PAN is every frame, not throttled. At 10/sec the player visibly
+        -- drifted toward the edge between updates while flying, then snapped back.
+        -- It's a couple of setter calls, so just keep it pinned.
+        --
+        -- The SHAPE sweep is not: it's a tree walk, and new tiles only appear when
+        -- the canvas re-lays out. Twice a second is well inside that, and everything
+        -- it has already masked is skipped on sight.
+        follower:SetScript("OnUpdate", function(_, elapsed)
+            if not active then return end
+            follow()
+            sinceShape = sinceShape + elapsed
+            if sinceShape >= 0.5 then
+                sinceShape = 0
+                shapeSweep()
+            end
         end)
     end
     follower:Show()
@@ -338,6 +458,13 @@ function Corner.Disable()
 
     if follower then follower:Hide() end
     if marker then marker:Hide() end
+
+    -- Take the masks off BEFORE we hand the window back. It's Blizzard's, and a
+    -- Battlefield Map that opens as a circle for the rest of the session because we
+    -- borrowed it once is exactly the kind of mess this file's Disable exists to
+    -- avoid. The tiles are pooled and reused, so this matters even if nobody ever
+    -- opens that window.
+    clearShape()
 
     if frame.BorderFrame then frame.BorderFrame:Show() end
     if frame.Tab then frame.Tab:Show() end
@@ -367,6 +494,9 @@ function Corner.ApplyLook()
     end
     frame:SetAlpha(NS.db.cornerAlpha or 1)
     follow()
+    -- The tray may have resized under us, which moves the mask's rect -- so re-anchor
+    -- it and pick up anything the resize rebuilt.
+    shapeSweep()
 end
 
 -- Settling up: whatever we ducked in combat, decide it again now. Hud.lua's own

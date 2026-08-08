@@ -94,7 +94,28 @@ Keep them; they're cheap and this class of breakage will recur.
 
 ---
 
-## 2. Shape the corner map — circle or other, in config
+## 2. Shape the corner map — DONE in 1.2.5
+
+Shipped as `cornerShape` (`"circle"` default, `"square"`), the "Round off the corner
+map" checkbox, and `/eu hud shape round|square`. The route below is the one taken;
+kept because the *reason* it isn't a one-liner is the part worth remembering.
+
+Two things that turned out to be load-bearing and weren't obvious up front:
+
+- **`CLAMPTOBLACKADDITIVE` on both axes.** Tiles extend past the frame while the
+  canvas is panned. Without clamping, everything outside the mask's own rectangle
+  stays *unmasked* — the map keeps its corners and spills over the tray, which looks
+  like the mask silently did nothing.
+- **`clearShape()` before handing the window back.** The tiles are pooled and reused,
+  so masks left on them outlive us — the real Battlefield Map would open as a circle
+  for the rest of the session.
+
+Not covered: only two shapes, because `MASK_ROUND` is the only shape art in the repo.
+`MASK_VIGNETTE` would give a genuinely soft rim here (a MaskTexture on a normal
+texture fades properly — that's unrelated to the blip gate in item 1), if that's ever
+wanted.
+
+### Original notes
 
 **Wanted:** the replacement map in the corner is a hard square. The hole it sits in
 is round (the tray's `disc` is masked with `MASK_ROUND`), so a square map in a round

@@ -617,6 +617,12 @@ NS.defaults = {
     cornerZoom       = 1.0,     -- multiplier on the canvas's max zoom
     cornerAlpha      = 1.0,
 
+    -- "circle" | "square". The hole the map sits in is round -- the tray paints a
+    -- disc through MASK_ROUND -- so a square map in it looks like something we
+    -- forgot to finish. Costs no new art: it's the same texture the disc uses.
+    -- See the long note in Corner.lua for why this isn't a SetMaskTexture call.
+    cornerShape      = "circle",
+
     -- The compass ring.
     --
     -- Blizzard draws it when the minimap rotates, so you can still find north. On a

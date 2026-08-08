@@ -909,6 +909,14 @@ SlashCmdList.EYESUP = function(msg)
                 and "|cff66ff66on|r — roads, quests, party, fog, where the minimap was"
                 or  "off — just the dark disc and your buttons")
 
+        elseif arg == "shape round" or arg == "shape square" then
+            NS.db.cornerShape = (arg == "shape round") and "circle" or "square"
+            if NS.Corner then NS.Corner.ApplyShape() end
+            if NS.Options then NS.Options.Refresh() end
+            NS.Printf("corner map shape: %s", NS.db.cornerShape == "circle"
+                and "|cff66ff66round|r — same disc the tray is cut to"
+                or  "square — Blizzard's own edges")
+
         elseif arg:match("^zoom") then
             local v = tonumber(arg:match("^zoom%s+([%d%.]+)$"))
             if v then
@@ -956,6 +964,7 @@ SlashCmdList.EYESUP = function(msg)
         else
             NS.Print("usage: |cffffff00/eu hud|r [on|off | <px> | rotate on/off | ring off/<0-100> |")
             NS.Print("            city on/off | track | track on/off | map on/off | zoom <n> |")
+            NS.Print("            shape round/square |")
             NS.Print("            mask clear/ghost/dim/vignette/round | sweep on/off |")
             NS.Print("            compat on/off | compat reset | status]")
         end
