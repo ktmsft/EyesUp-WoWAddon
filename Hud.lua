@@ -27,15 +27,36 @@ local addonName, NS = ...
 --
 -- So don't read them. MOVE THEM.
 --
--- The Minimap is a frame. Frames can be moved, resized, and masked. And the mask
--- -- which shapes the map through its alpha channel -- does NOT apply to the
--- blips, because the blips aren't part of the Lua render at all. Point a fully
--- transparent mask at the minimap and the terrain vanishes while every tracking
--- icon stays exactly where it was.
+-- The Minimap is a frame. Frames can be moved, resized, masked and faded. Move it
+-- to the middle of the screen, then take the terrain away and leave the blips.
 --
--- What's left is node markers hanging in space over the actual world, in the
--- middle of your screen, telling the absolute truth. Which is what "Eyes Up"
--- meant all along.
+-- TWO DIALS, AND WHICH ONE DOES WHICH IS NOT OBVIOUS
+--
+--   the MASK   -- shapes what draws, through its alpha channel. It is a GATE, and
+--                 it gates the blips too: where the mask is transparent, there are
+--                 no blips either. So the mask must be OPAQUE across the whole area
+--                 we want to see -- a plain round disc.
+--   frame ALPHA -- Minimap:SetAlpha, a separate path, and the useful one: it fades
+--                 the terrain and does NOT reach the blips. Turn it down to a
+--                 hundredth and the map is simply gone while every tracking icon
+--                 stays at full strength.
+--
+-- So: opaque mask, low alpha. What's left is node markers hanging in space over the
+-- actual world, in the middle of your screen, telling the absolute truth. Which is
+-- what "Eyes Up" meant all along.
+--
+-- IT USED TO BE THE OTHER WAY ROUND, AND THAT IS WHY THE SETTINGS LOOK ODD
+--
+-- Through 12.0.7 the mask did not touch the blips at all. A fully transparent mask
+-- (MASK_CLEAR, alpha 0) deleted the terrain and left every icon, and hudAlpha was
+-- just the HUD's overall opacity. 12.1 gave the mask a blip gate and the trick
+-- died: alpha 0 erased the blips, alpha 1 erased them, alpha 64 erased them, and
+-- the HUD came up empty with no error anywhere. It's a threshold, not a fade.
+--
+-- Frame alpha was the way out, and it behaves the same on both clients -- so there
+-- is ONE code path here, not a version branch. The old masks are still selectable
+-- from /eu hud mask for diagnosis; they are simply no longer how this works.
+-- See BACKLOG.md for the measurements.
 --
 -- WHAT THIS COSTS
 --
@@ -738,7 +759,10 @@ local function stripArt()
         -- texture off the Minimap -- ring, border, and any decoration bleeding
         -- through. Blips survive (they're engine-drawn); parked buttons survive
         -- (they're no longer Minimap descendants).
-        hideLuaTextures(Minimap, 0)
+        --
+        -- "Blips survive" is the load-bearing claim, and hudSweep is how you check
+        -- it. See Hud.SetSweep.
+        if db.hudSweep ~= false then hideLuaTextures(Minimap, 0) end
     else
         -- Corner off: take the buttons away entirely rather than let them orbit
         -- the HUD.
@@ -1093,10 +1117,25 @@ function applyTracking()
 
     for i = 1, n do
         local name, activeState, spellID = getTracking(i)
-        local cat = trackCategory(name, spellID)
-        local want = Hud.TrackWanted(spellID or name, cat)
-        if want ~= (activeState and true or false) then
-            C_Minimap.SetTracking(i, want)
+
+        -- A TYPE WE CANNOT NAME IS A TYPE WE CANNOT JUDGE.
+        --
+        -- getTracking has already had to change shape once (tuple in 11.x, table in
+        -- 12.0) and it will again. When it stops reading, every entry comes back
+        -- nil -- so trackCategory says "not gathering" for all of them, TrackWanted
+        -- says off for all of them, and this loop cheerfully switches off the
+        -- player's ENTIRE tracking. No error, no clue: the HUD comes up, the corner
+        -- map swaps in, and there is simply nothing on it, forever.
+        --
+        -- So identification is a precondition, not an input. Can't read it, don't
+        -- touch it. The cost of being wrong that way is some clutter on the HUD; the
+        -- cost of being wrong the other way is the whole feature, silently.
+        if name ~= nil or spellID ~= nil then
+            local cat = trackCategory(name, spellID)
+            local want = Hud.TrackWanted(spellID or name, cat)
+            if want ~= (activeState and true or false) then
+                C_Minimap.SetTracking(i, want)
+            end
         end
     end
 end
@@ -1130,11 +1169,17 @@ function Hud.ListTracking()
     if not (C_Minimap and C_Minimap.GetNumTrackingTypes) then return out end
     local n = C_Minimap.GetNumTrackingTypes() or 0
     for i = 1, n do
-        local name, _, spellID = getTracking(i)
+        local name, activeState, spellID = getTracking(i)
         out[#out + 1] = {
-            name = name or ("Tracking " .. i),
-            key  = spellID or name,
-            cat  = trackCategory(name, spellID),
+            index  = i,
+            name   = name or ("Tracking " .. i),
+            key    = spellID or name,
+            cat    = trackCategory(name, spellID),
+            -- What the client says RIGHT NOW, and whether it said anything at all.
+            -- `readable` false means getTracking came back empty for this entry --
+            -- see the note in applyTracking for why that is the interesting case.
+            active   = activeState and true or false,
+            readable = (name ~= nil or spellID ~= nil),
         }
     end
     return out
@@ -1201,8 +1246,11 @@ function startPatrol()
         pcall(Hud.ParkButtons)
         pcall(setBlobAlpha, 0)        -- quest blobs redraw as objectives change
         pcall(applyTracking)          -- keep tracking pinned to gathering-only
-        local ok, n = pcall(hideLuaTextures, Minimap, 0)  -- POIs appear as you move
-        if not ok then n = 0 end
+        local n = 0
+        if NS.db.hudSweep ~= false then
+            local ok, c = pcall(hideLuaTextures, Minimap, 0)  -- POIs appear as you move
+            n = ok and c or 0
+        end
         -- Only speak when the count CHANGES, so debug mode stays quiet at rest and
         -- you actually notice the moment a POI shows up and gets hidden.
         if NS.db.debug and n ~= lastHidCount then
@@ -1248,10 +1296,32 @@ function Hud.ApplyLook()
     Minimap:SetPoint("CENTER", UIParent, "CENTER", db.hudX or 0, db.hudY or 0)
     Minimap:SetAlpha(db.hudAlpha or 1)
 
+    -- THE MASK IS A GATE, NOT A FADE. See the top of this file.
+    --
+    -- "round" is the only one of these that belongs in normal use: an opaque disc,
+    -- so every blip inside it draws. The terrain is dealt with by SetAlpha below,
+    -- not here. The transparent ones are kept because they're how you diagnose the
+    -- next time this changes -- and they are exactly what a broken HUD looks like,
+    -- so don't hand them to anyone from the options page.
     if Minimap.SetMaskTexture then
-        local mask = (db.hudMask == "vignette")
-            and (NS.CustomGlyphDir .. "MASK_VIGNETTE")
-            or  (NS.CustomGlyphDir .. "MASK_CLEAR")
+        local m = db.hudMask or "round"
+        local mask
+        if m == "vignette" then
+            mask = NS.CustomGlyphDir .. "MASK_VIGNETTE"
+        elseif m == "dim" then
+            mask = NS.CustomGlyphDir .. "MASK_DIM"
+        elseif m == "ghost" then
+            -- Alpha 1 out of 255, flat. Terrain you cannot see, over a mask that is
+            -- nonetheless NOT zero -- which is the whole question 12.1 raised: is a
+            -- blip GATED on the mask's alpha, or MULTIPLIED by it? If gated, this is
+            -- the fix and it costs nothing. If multiplied, the blips come through at
+            -- 1/255 and this looks identical to "clear".
+            mask = NS.CustomGlyphDir .. "MASK_GHOST"
+        elseif m == "round" then
+            mask = ROUND_MASK
+        else
+            mask = NS.CustomGlyphDir .. "MASK_CLEAR"
+        end
         pcall(Minimap.SetMaskTexture, Minimap, mask)
     end
 
@@ -1269,6 +1339,45 @@ function Hud.ApplyLook()
     pcall(applyRotation)
     pcall(applyRing)
     pcall(applyTracking)
+end
+
+-- ---------------------------------------------------------------------------
+-- THE SWEEP, AND THE SWITCH THAT PROVES IT INNOCENT.
+--
+-- hideLuaTextures hides every Lua Texture under the Minimap, bluntly, on one
+-- premise: the gathering blips are drawn by the ENGINE, so they are not Lua
+-- Texture regions and cannot possibly be caught in the sweep. That premise is
+-- true right up until a patch moves the blips into a Lua pin pool, at which point
+-- the sweep quietly deletes the entire point of the addon twice a second and
+-- looks exactly like "the mask broke."
+--
+-- So it gets an off switch. Turn the sweep off and the HUD gets its ring, its
+-- border and its POI art back -- ugly, and diagnostic: if the blips come back
+-- with them, the sweep was eating them and we need to learn what to skip.
+--
+-- Only offered on the keep-corner path. With the corner hidden, `hidden` also
+-- holds frames we hid on purpose (the cluster, the map's children), and those are
+-- not the sweep's to hand back.
+-- ---------------------------------------------------------------------------
+function Hud.SetSweep(on)
+    if not NS.db then return end
+    NS.db.hudSweep = on and true or false
+
+    if not active then return end
+    if on then
+        pcall(hideLuaTextures, Minimap, 0)
+        return
+    end
+    if NS.db.hudKeepCorner == false then return end
+
+    for i = 1, #hidden do
+        local o = hidden[i]
+        if o then
+            o.__euHid = nil
+            if o.Show then o:Show() end
+        end
+    end
+    wipe(hidden)
 end
 
 -- How far the HUD can actually see, in yards. Real number, straight from the
@@ -1422,6 +1531,12 @@ function Hud.Report()
         active and "|cff66ff66on|r" or "off",
         NS.db.hudSize or 400,
         NS.db.hudRotate and "|cff66ff66on|r (up = the way you're facing)" or "off (up = north)")
+
+    -- The two things that can hide a blip without erroring. Both on the status line
+    -- so "no blips" starts with an answer rather than a guess.
+    NS.Printf("mask: %s   texture sweep: %s",
+        NS.db.hudMask or "clear",
+        NS.db.hudSweep ~= false and "on" or "|cffffcc00off|r")
 
     local r = Hud.RangeYards()
     NS.Printf("range: |cff66ff66%s yards|r, every direction, live and exact",

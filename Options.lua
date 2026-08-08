@@ -727,9 +727,13 @@ local function buildHudPage()
     placeR(makeSlider(R, "Zoom (0 = widest, furthest)", 0, 6, 1,
         function() return NS.db.hudZoom end,
         function(v) NS.db.hudZoom = v; NS.Hud.ApplyLook() end, "%.0f"), 44)
-    placeR(makeSlider(R, "Blip opacity", 0.2, 1, 0.05,
+    -- The MAP's opacity, not the blips'. It used to be the other way round -- the
+    -- mask deleted the terrain and this faded the HUD -- until 12.1 made the mask
+    -- gate the blips. Now this is what hides the map, and it doesn't reach the
+    -- blips at all. Bottom of the range is 0.01, not 0: see the note in Constants.
+    placeR(makeSlider(R, "Map opacity (0.01 = blips only)", 0.01, 1, 0.01,
         function() return NS.db.hudAlpha end,
-        function(v) NS.db.hudAlpha = v; NS.Hud.ApplyLook() end), 44)
+        function(v) NS.db.hudAlpha = v; NS.Hud.ApplyLook() end, "%.2f"), 44)
     placeR(makeSlider(R, "Range ring opacity", 0, 1, 0.05,
         function() return NS.db.hudRingAlpha end,
         function(v) NS.db.hudRingAlpha = v; NS.Hud.ApplyLook() end), 44)
@@ -737,9 +741,15 @@ local function buildHudPage()
         function() return NS.db.cornerZoom end,
         function(v) NS.db.cornerZoom = v; if NS.Corner then NS.Corner.ApplyLook() end end), 44)
 
-    placeR(makeCheck(R, "Soft edge (fade at the rim)",
-        function() return NS.db.hudMask == "vignette" end,
-        function(v) NS.db.hudMask = v and "vignette" or "clear"; NS.Hud.ApplyLook() end))
+    -- GONE: "Soft edge (fade at the rim)", which flipped hudMask between "vignette"
+    -- and "clear". Neither position works any more. The mask is a GATE on 12.1 --
+    -- wherever it's transparent there are no blips either -- so a rim that fades to
+    -- nothing can only ever be a hard cut at whatever alpha crosses the threshold,
+    -- and "clear" blanks the HUD completely. A checkbox with one broken setting and
+    -- one catastrophic one is worse than no checkbox.
+    --
+    -- The masks are still reachable from /eu hud mask for diagnosis. They just
+    -- aren't something to hand somebody from an options page.
 
     L:SetHeight(math.max(1, -ly))
     R:SetHeight(math.max(1, -ry))

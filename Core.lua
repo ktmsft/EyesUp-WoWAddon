@@ -478,6 +478,38 @@ ev:SetScript("OnEvent", function(_, event, ...)
             NS.pruned = had
         end
 
+        -- ---------------------------------------------------------------------
+        -- One-time: the mask stopped being the thing that hides the terrain.
+        --
+        -- Every install before this one has hudMask = "clear" and hudAlpha = 1.0
+        -- saved, because that WAS the addon: a fully transparent mask deleted the
+        -- map and left the blips. 12.1 gave the mask a blip gate, so a transparent
+        -- mask now deletes the blips too and the HUD comes up empty -- no error, no
+        -- clue, just nothing. The job moved to frame alpha. See the top of Hud.lua.
+        --
+        -- Changing NS.defaults alone reaches nobody: applyDefaults only fills keys
+        -- that are MISSING, and every existing character already has both of these.
+        -- So they get rewritten here, once.
+        --
+        -- Only the transparent masks are touched. Somebody who deliberately chose
+        -- "round" or "vignette" gets left alone, and hudAlpha is only ever lowered
+        -- -- if they'd already turned the HUD down further than we would, that was a
+        -- choice and it still works.
+        --
+        -- Deliberately NOT a key in NS.defaults -- same trap as identityVersion
+        -- above: a default would stamp every install as already-migrated and this
+        -- would never run for the people it exists for.
+        -- ---------------------------------------------------------------------
+        if not db.maskGatesBlipsMigrated then
+            db.maskGatesBlipsMigrated = true
+            local m = db.hudMask
+            if m == nil or m == "clear" or m == "ghost" or m == "dim" then
+                db.hudMask = "round"
+                if (db.hudAlpha or 1) > 0.01 then db.hudAlpha = 0.01 end
+                NS.maskMigrated = true
+            end
+        end
+
         -- Backfill speciesItem from every node we've ever recorded.
         --
         -- The cue's icon in "item" mode wants the thing a node DROPS (the ore, not
@@ -531,6 +563,11 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if NS.pruned then
             NS.Print("|cff88ff88Nodes are now listed by species (\"Copper Vein\"), not by what they")
             NS.Print("drop (\"Copper Ore\"), so the old list was cleared. It refills as you fly.|r")
+        end
+        if NS.maskMigrated then
+            NS.Print("|cff88ff88The HUD hides the map a different way now -- the old way stopped "
+                .. "working in 12.1 and would have left you with an empty screen. It looks the "
+                .. "same; the setting that controls it is \"Map opacity\".|r")
         end
         if NS.compatRestored then
             -- One call, not three. Chat stamps the "Eyes Up" tag on every message it
@@ -755,12 +792,84 @@ SlashCmdList.EYESUP = function(msg)
                 and "kept (border, tracking, mail, clock, addon buttons)"
                 or  "hidden entirely")
 
+        elseif arg == "track" then
+            -- "Find Herbs is ticked and there are still no blips." This is the
+            -- answer, and it's the only place you can see it: the HUD shows the
+            -- game's own tracking, so if the game isn't tracking herbs there is
+            -- nothing to show and nothing to go wrong. Prints, per type, what the
+            -- client said and what we decided to do about it.
+            local list = NS.Hud.ListTracking()
+            NS.Printf("tracking: %d type(s), managed: %s", #list,
+                NS.db.hudManageTracking and "|cff66ff66yes|r" or "no")
+            if #list == 0 then
+                NS.Print("  |cffff6666the client offered no tracking types at all.|r")
+            end
+            for _, t in ipairs(list) do
+                if not t.readable then
+                    -- The failure this whole dump exists for: C_Minimap.GetTrackingInfo
+                    -- changed shape and we can no longer tell a herb from a mailbox.
+                    NS.Printf("  |cffff6666%2d unreadable|r -- GetTrackingInfo said nothing", t.index)
+                else
+                    NS.Printf("  %2d %s%s|r  %s  want %s",
+                        t.index,
+                        t.active and "|cff66ff66" or "|cff888888",
+                        t.name,
+                        t.cat and ("|cffffcc00[" .. t.cat .. "]|r") or "[-]",
+                        NS.Hud.TrackWanted(t.key, t.cat) and "on" or "off")
+                end
+            end
+
         elseif arg == "track on" or arg == "track off" then
             NS.db.hudManageTracking = (arg == "track on")
             if NS.Hud.IsActive() then NS.Hud.Disable(); NS.Hud.Enable() end
             NS.Printf("gathering-only tracking: %s", NS.db.hudManageTracking
                 and "|cff66ff66on|r — only herbs/ore/timber/fish while the HUD is up"
                 or  "off — the HUD shows whatever you're tracking")
+
+        elseif arg == "sweep on" or arg == "sweep off" then
+            -- Half of "why are there no blips?" -- see Hud.SetSweep. Off puts the
+            -- ring, the border and the POI art back on the HUD; if the BLIPS come
+            -- back with them, the sweep was eating them.
+            NS.Hud.SetSweep(arg == "sweep on")
+            NS.Printf("texture sweep: %s", NS.db.hudSweep
+                and "|cff66ff66on|r — the map's own art is hidden"
+                or  "|cffffcc00off|r — ring, border and POI art are back (diagnostic)")
+
+        elseif arg:match("^mask") then
+            -- The other half. "round" is Blizzard's own mask: if blips draw under
+            -- that and not under "clear", the mask is clipping the blip layer.
+            local v = arg:match("^mask%s+(%S+)$")
+            if v == "clear" or v == "vignette" or v == "dim" or v == "ghost" or v == "round" then
+                NS.db.hudMask = v
+                NS.Hud.ApplyLook()
+                if NS.Options then NS.Options.Refresh() end
+                NS.Printf("mask: |cff66ff66%s|r%s", v,
+                    v == "round" and " — Blizzard's own. The map is back; this is the control case."
+                    or (v == "clear" and " — no map at all, blips only" or ""))
+            else
+                NS.Print("usage: |cffffff00/eu hud mask clear|ghost|dim|vignette|round|r")
+                NS.Print("  |cffffff00clear|r is the point of the addon (alpha 0). |cffffff00ghost|r is alpha 1 --")
+                NS.Print("  terrain you can't see, over a mask that isn't zero. |cffffff00round|r is")
+                NS.Print("  Blizzard's, and it's how you tell a masking problem from anything else.")
+            end
+
+        elseif arg:match("^alpha") then
+            -- The other way out, if the mask is a threshold. Frame alpha is a
+            -- different mechanism from mask alpha -- so the question is whether it
+            -- reaches the blips. If the map fades and the BLIPS STAY BRIGHT, we get
+            -- the HUD back: Blizzard's round mask, turned down.
+            local v = tonumber(arg:match("^alpha%s+([%d%.]+)$"))
+            if v then
+                if v > 1 then v = v / 100 end          -- accept "10" as 10%
+                NS.db.hudAlpha = math.max(0, math.min(1, v))
+                NS.Hud.ApplyLook()
+                if NS.Options then NS.Options.Refresh() end
+                NS.Printf("hud alpha: |cff66ff66%.2f|r", NS.db.hudAlpha)
+                NS.Print("  Did the map fade but the blips stay bright? Then frame alpha")
+                NS.Print("  doesn't reach them, and that's the way out.")
+            else
+                NS.Print("usage: |cffffff00/eu hud alpha 0-1|r  (or 0-100)")
+            end
 
         elseif arg:match("^ring") then
             -- The compass ring: gone, or faded to whatever you can live with.
@@ -846,7 +955,8 @@ SlashCmdList.EYESUP = function(msg)
 
         else
             NS.Print("usage: |cffffff00/eu hud|r [on|off | <px> | rotate on/off | ring off/<0-100> |")
-            NS.Print("            city on/off | track on/off | map on/off | zoom <n> |")
+            NS.Print("            city on/off | track | track on/off | map on/off | zoom <n> |")
+            NS.Print("            mask clear/ghost/dim/vignette/round | sweep on/off |")
             NS.Print("            compat on/off | compat reset | status]")
         end
 

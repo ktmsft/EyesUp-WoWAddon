@@ -562,9 +562,29 @@ NS.defaults = {
     hudSize          = 400,     -- pixels across
     hudX             = 0,       -- offset from screen center
     hudY             = 0,
-    hudAlpha         = 1.0,     -- the BLIPS' opacity; the map behind them is gone
+    -- THE MAP's opacity -- not the blips'. This is the dial that deletes the
+    -- terrain now, and it does not reach the blips on any client we've measured
+    -- (12.0.7 and 12.1 both). At a hundredth the map is simply gone and the blips
+    -- are still at full strength, which is the look this addon has always had.
+    --
+    -- Not zero, and the slider won't go there either: a frame at alpha 0 is a frame
+    -- the client may stop drawing altogether, blips and all, and "the setting at
+    -- the end of the slider turns the addon off" is not a thing to ship. 0.01 is
+    -- measured, and invisible.
+    hudAlpha         = 0.01,
     hudZoom          = 0,       -- 0 = widest = furthest sight. Zoom IS range.
-    hudMask          = "clear", -- "clear" (no map at all) | "vignette" (soft edge)
+    -- OPAQUE, ALWAYS. The mask gates the blips as well as the terrain, so anything
+    -- transparent here erases the HUD -- see the top of Hud.lua. The map is hidden
+    -- with hudAlpha below, not with this.
+    --
+    -- "clear" / "ghost" / "dim" / "vignette" remain selectable from /eu hud mask
+    -- because they are the diagnostic ladder, not because anyone should run them.
+    hudMask          = "round",
+
+    -- Sweep the Lua textures (ring, border, POI art) off the relocated map. On,
+    -- because without it the HUD is a giant minimap frame with its furniture still
+    -- attached. Off is the diagnostic: see Hud.SetSweep.
+    hudSweep         = true,
 
     -- UP IS THE WAY YOU'RE FACING. This is what makes it a HUD rather than a map.
     --
