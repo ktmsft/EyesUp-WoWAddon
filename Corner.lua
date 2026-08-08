@@ -398,6 +398,13 @@ function Corner.Enable()
         mouse   = frame:IsMouseEnabled(),
     }
 
+    -- THE DISC HAS NOTHING LEFT TO DO. Hud's tray paints a black 55% disc so the
+    -- corner reads as a deliberate dark circle rather than a ring around a hole.
+    -- There is a real map in that hole now, and the disc sits directly behind it at
+    -- exactly the same size -- so all it can do is tint the map darker, which is
+    -- precisely what it looked like. Off while we're here, back when we leave.
+    if tray.disc then tray.disc:Hide() end
+
     frame:SetParent(tray)
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", tray, "CENTER", 0, 0)
@@ -465,6 +472,10 @@ function Corner.Disable()
     -- avoid. The tiles are pooled and reused, so this matters even if nobody ever
     -- opens that window.
     clearShape()
+
+    -- Give the hole its filler back -- we're about to take the map out of it.
+    local tray = _G.EyesUpMinimapTray
+    if tray and tray.disc then tray.disc:Show() end
 
     if frame.BorderFrame then frame.BorderFrame:Show() end
     if frame.Tab then frame.Tab:Show() end
