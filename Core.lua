@@ -420,6 +420,13 @@ ev:SetScript("OnEvent", function(_, event, ...)
         NS.db = db
         Data.nodes = db.nodes              -- these tables ARE the saved data now
 
+        -- Stamp which build last wrote this file. "It started after an update" is a
+        -- guess until you can see what the file was written by, and saved variables
+        -- outlive the install that made them.
+        NS.BUILD = ((C_AddOns and C_AddOns.GetAddOnMetadata
+            and C_AddOns.GetAddOnMetadata(addonName, "Version")) or "?") .. "+f0a4d7e21c6b"
+        db.build = NS.BUILD
+
         -- ---------------------------------------------------------------------
         -- One-time: undo a compat verdict that was never true.
         --
@@ -506,7 +513,6 @@ ev:SetScript("OnEvent", function(_, event, ...)
             if m == nil or m == "clear" or m == "ghost" or m == "dim" then
                 db.hudMask = "round"
                 if (db.hudAlpha or 1) > 0.01 then db.hudAlpha = 0.01 end
-                NS.maskMigrated = true
             end
         end
 
@@ -563,11 +569,6 @@ ev:SetScript("OnEvent", function(_, event, ...)
         if NS.pruned then
             NS.Print("|cff88ff88Nodes are now listed by species (\"Copper Vein\"), not by what they")
             NS.Print("drop (\"Copper Ore\"), so the old list was cleared. It refills as you fly.|r")
-        end
-        if NS.maskMigrated then
-            NS.Print("|cff88ff88The HUD hides the map a different way now -- the old way stopped "
-                .. "working in 12.1 and would have left you with an empty screen. It looks the "
-                .. "same; the setting that controls it is \"Map opacity\".|r")
         end
         if NS.compatRestored then
             -- One call, not three. Chat stamps the "Eyes Up" tag on every message it

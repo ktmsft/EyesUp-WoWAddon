@@ -31,7 +31,7 @@ if (-not $version) { throw 'Could not read ## Version from EyesUp.toc' }
 # Never shipped to players. This is an EXCLUDE list, not a named manifest -- anything
 # new in the repo root ships by default, so a dev-only file has to be named here or it
 # goes out with the addon.
-$exclude = @('.git', '.gitignore', 'dist', 'tools', 'tests', 'EyesUpDev.toc', 'BACKLOG.md')
+$exclude = @('.git', '.gitignore', 'dist', 'tools', 'tests', 'EyesUpDev.toc', 'BACKLOG.md', 'source-art')
 
 Write-Host "Building Eyes Up $version ..."
 if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }

@@ -8,3 +8,8 @@
 
 # Build output.
 /dist/
+
+# Icon source art. tools/make-icon.ps1 draws every candidate as a PNG so they can be
+# compared, and writes only the chosen one out as textures/logo-icon.tga. WoW can't load
+# a PNG, so the previews are working material — regenerate them, don't commit them.
+/source-art/

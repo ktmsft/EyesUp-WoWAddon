@@ -175,6 +175,11 @@ NS.CustomGlyph = {
     FISHING  = NS.CustomGlyphDir .. "FISHING",
 }
 
+-- Revision of the shipped texture set. Bumped when the art in textures\ changes,
+-- so a folder left behind by a half-finished update can be told apart from the
+-- one this build was drawn against.
+NS.GlyphSetRev = 264590787222635
+
 -- The arrow. Points north at rotation 0, which is the assumption baked into all
 -- the bearing math. If you swap the art, keep it SQUARE: SetRotation works in
 -- texture space, so a rectangular texture shears itself when it turns.

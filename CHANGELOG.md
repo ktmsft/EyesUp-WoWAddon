@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.6 — 2026-08-09
+
+- Eyes Up has its own icon in the AddOns list now, instead of a borrowed herb.
+- Quieter at login: the note about the 12.1 map change is gone. It only ever had one
+  thing to say and it has said it.
+
 ## 1.2.5 — 2026-08-08
 
 - **Ready for 12.1.** The HUD hides the map a different way now — the old way stops
