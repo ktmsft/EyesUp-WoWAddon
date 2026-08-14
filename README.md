@@ -24,7 +24,7 @@ game quietly pretends the addon doesn't exist. Restart the client afterward.
 
 ## The HUD — the main event
 
-Turn on the **heads-up display** (`/eu hud on`) and your minimap moves to the middle
+Turn on the **heads-up display** (`/eu on`) and your minimap moves to the middle
 of your screen, the map is masked away, and what's left is the tracking blips —
 herbs, ore, fish — floating over the world, rotated so **up is the way you're
 facing.** A blip above your character is a node straight ahead.
@@ -38,7 +38,16 @@ herbs are; it's showing the tracking WoW already draws, just not in the corner.
   the HUD is up these **override** your normal tracking, then hand it back when it
   comes down.
 - **A real map goes in the corner.** There's only one minimap, so tick **Map in the
-  corner** and a live map — roads, your position — fills the hole it left.
+  corner** and a live map — roads, your position — fills the hole it left. **Corner
+  map opacity** (`/eu mapalpha`) turns it down if you'd rather it sat quietly
+  behind the rest of your UI; your position arrow stays at full strength either way.
+  It's framed like the minimap too — it wears whatever art your minimap wears, and
+  draws nothing at all rather than something wrong if your client has none it can
+  use. `/eu art` says which.
+- **It steps aside while you're fighting**, if you want. Tick *Step aside while I'm
+  fighting* (`/eu combat on`) and the HUD drops the moment a fight starts and comes
+  back when it ends — a hundred yards of herb markers across your screen is not what
+  you want on a pull. The corner map stays put; that's when you'd want a map.
 - **It steps aside when you're not gathering.** Cities and inns (full of service
   icons the game won't let us hide), dungeons and raids, and PvP instances: the HUD
   folds away and gives your minimap back, then returns when you ride out. Cities and
@@ -47,7 +56,32 @@ herbs are; it's showing the tracking WoW already draws, just not in the corner.
 - **A keybind for everywhere else.** Bind *Toggle the heads-up display* under Escape
   → Keybindings → **Eyes Up Add On** and flick it off when you drop into a busy camp.
 
-Size, zoom, rotation, opacity and blip tooltips are all on the page.
+- **It doesn't have to sit in the middle.** Centre is the default — it's a heads-up
+  display, and that's where you're looking — but it's also where your character is
+  and where every other addon puts its warnings. Hit **Unlock & drag** (`/eu move`),
+  drag the circle where you want it, then right-click it or hit **Lock it here**
+  (`/eu lock`). **Snap back to centre** (`/eu centre`) undoes it.
+
+  This only ever moves the **HUD**. With the HUD off, the minimap is back in its
+  corner where its owner put it, and none of these touch it.
+
+Size, zoom, rotation, opacity, blip size and blip tooltips are all on the page.
+
+### About the blips themselves
+
+They are the game's, drawn by the engine, and 12.0.7 removed the one API that could
+reskin them — so **no addon can change their artwork or their colour any more**, per
+type or at all. What's left is **size**: scaling the map scales its artwork, so we
+scale up and shrink the circle to match. Bigger dots, same hundred yards.
+
+That's the whole list, and it's one slider. A disc behind the blips and a colour
+tinted over them both got built and both got taken out again — the disc costs you the
+view through the circle, which is most of the point, and the tint colours the world
+showing through by exactly as much as the blips, because a multiply can't tell them
+apart.
+
+`/eu blips` reports what your client actually allows, rather than what this file
+remembers.
 
 ## The cue — the original, still here
 
@@ -104,20 +138,27 @@ yourself.
 
 ## Commands & keybinds
 
-Almost everything lives in `/eu`. The handy ones:
+Eight, and they're all about the HUD — because that's what this addon is. The word
+`hud` isn't in any of them, since every one of them is about it:
 
 | | |
 |---|---|
 | `/eu` | open the options |
-| `/eu hud on\|off` | the heads-up display |
-| `/eu guesses on\|off` | also point at nodes that might not be there |
-| `/eu status` | why isn't it firing? |
-| `/eu toggle` | eyes up / eyes closed |
-| `/eu lock` / `/eu unlock` | drag the cue, then pin it |
+| `/eu on` / `/eu off` | the HUD |
+| `/eu size 400` | how big the circle is |
+| `/eu move` | unlock and drag it; right-click to lock |
+| `/eu lock` | lock it where it is |
+| `/eu centre` | put it back in the middle |
+| `/eu blips 1.5` | how big the blips are — bare, what else this client allows |
+| `/eu status` | what's on, and why there might be no blips |
 
-`/eyesup` and `/ns` work too; `/eu` alone lists the rest. Under **Escape →
-Keybindings → Eyes Up Add On** you can bind *Toggle the heads-up display* and *Toggle
-the addon*.
+Everything else — the cue, the filters, GatherMate, the diagnostics for when the HUD
+looks wrong — is behind one door: **`/eu more`**. Nothing was removed; it just isn't
+the first thing you see. The long forms still work too, so `/eu hud size 400` is the
+same command as `/eu size 400`.
+
+`/eyesup` and `/ns` work as well. Under **Escape → Keybindings → Eyes Up Add On** you
+can bind *Toggle the heads-up display* and *Toggle the addon*.
 
 ## What it can't do
 

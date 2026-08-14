@@ -90,6 +90,7 @@ local active = false
 -- back. Declared here, assigned (without `local`) at their real definitions below.
 local startPatrol, restoreRotation, restoreRing, patrol
 local applyTracking, restoreTracking
+local placeMinimap, layoutMover, hideMover
 local reanchoring = false     -- guards the button SetPoint hook against its own corrections
 local reloadNudged = false    -- the "reload to get your skin back" note is a once-per-session thing
 
@@ -379,7 +380,7 @@ function Hud.CheckMinimapCompat()
     -- underneath it, for whoever clicks Okay on reflex and wonders an hour later
     -- where the HUD went.
     NS.Printf("|cffffcc00%s is running your minimap, so the blip HUD stayed off.|r "
-        .. "|cffffff00/eu hud on|r to use it anyway.", owner)
+        .. "|cffffff00/eu on|r to use it anyway.", owner)
 
     if _G.StaticPopup_Show then
         _G.StaticPopup_Show("EYESUP_MINIMAP_TAKEN", owner)
@@ -848,6 +849,7 @@ function Hud.Enable()
         strata = Minimap:GetFrameStrata(),
         zoom   = Minimap:GetZoom(),
         scale  = Minimap:GetScale(),
+        level  = Minimap:GetFrameLevel(),
         mouse  = Minimap:IsMouseEnabled(),
     }
 
@@ -865,10 +867,13 @@ function Hud.Enable()
     if Minimap.SetFixedFrameLevel then pcall(Minimap.SetFixedFrameLevel, Minimap, false) end
 
     Minimap:SetParent(UIParent)
-    Minimap:ClearAllPoints()
-    Minimap:SetPoint("CENTER", UIParent, "CENTER", db.hudX or 0, db.hudY or 0)
-    Minimap:SetSize(db.hudSize or 400, db.hudSize or 400)
+    placeMinimap()
     Minimap:SetFrameStrata("BACKGROUND")     -- behind everything; it's scenery, not UI
+    -- Room to slide a disc UNDER it. Frame levels can't go below zero, so if the
+    -- minimap is sitting at the bottom of its strata there is nowhere to put the
+    -- backdrop and it draws in front of the blips instead -- which looks exactly
+    -- like the backdrop setting being broken. Snapshotted above, restored below.
+    if (Minimap:GetFrameLevel() or 0) < 2 then Minimap:SetFrameLevel(2) end
     -- Mouse: off by default (a 400px zone that eats clicks in the middle of your
     -- screen is a nuisance while you're grabbing nodes), but the minimap's blip
     -- tooltips only work WITH the mouse on -- so it's a toggle. See ApplyLook.
@@ -902,12 +907,24 @@ function Hud.Disable()
     -- mid-pull anyway.
     if notNow() then return end
 
+    -- Undo our own combat hide before anything else, while `active` is still true
+    -- (SetCombatHidden won't re-show a HUD it thinks is down). Skip this and the
+    -- minimap is handed back to the corner still hidden, which reads as the addon
+    -- having eaten it.
+    Hud.SetCombatHidden(false)
+
     -- FIRST, before we touch anything: the button SetPoint hook keys off `active`,
     -- and restoreArt is about to re-point every button back to the Minimap. Leave
     -- `active` true and the hook fights the restore, dragging them back to the tray.
     active = false
 
     if patrol then patrol:Hide() end
+    -- Nothing of ours left on screen -- and PIN IT while we're here. Unlocked is a
+    -- transient state, not a setting: the HUD folds away on its own in cities and
+    -- dungeons, and coming back to "unlocked, but no handle anywhere" would leave
+    -- the options page offering to pin something that isn't there.
+    if NS.db then NS.db.hudLocked = true end
+    pcall(hideMover)
     if NS.Corner then NS.Corner.Disable() end   -- before the tray goes away
 
     restoreArt()
@@ -928,6 +945,7 @@ function Hud.Disable()
         Minimap:SetSize(saved.w, saved.h)
         Minimap:SetAlpha(saved.alpha)
         Minimap:SetFrameStrata(saved.strata)
+        if saved.level then Minimap:SetFrameLevel(saved.level) end
         if saved.scale then Minimap:SetScale(saved.scale) end
         if saved.zoom then Minimap:SetZoom(saved.zoom) end
     end
@@ -1273,6 +1291,231 @@ end
 -- are here, facing up" -- which is harmless. So we leave it, and we don't ship a
 -- setting that pretends to remove it.
 
+-- ---------------------------------------------------------------------------
+-- WHERE IT SITS, AND HOW BIG THE BLIPS ARE. One function, because they're the
+-- same sum.
+--
+-- BLIP SIZE IS FRAME SCALE. The blips are drawn by the engine inside the Minimap,
+-- at a size the engine picks -- resizing the frame with SetSize doesn't touch
+-- them, which is why a 400px HUD has the same little dots a 140px minimap does,
+-- spread five times further apart. SCALE is different: it's a transform on
+-- everything the frame draws, artwork included. So scale up and shrink by the
+-- same factor, and the circle stays the size you asked for, a blip on the rim is
+-- still a hundred yards away, and the only thing that changed is how big the dots
+-- are. That's the whole trick, and it's the one piece of blip styling the client
+-- still allows.
+--
+-- The catch is that SetPoint offsets are measured in the anchored frame's own
+-- scale, so a HUD at scale 2 would sit twice as far from centre as you asked.
+-- hudX/hudY are screen pixels and stay screen pixels; the division is here.
+function placeMinimap()
+    local db = NS.db
+    if not (db and Minimap) then return end
+
+    local size  = db.hudSize or 400
+    local scale = tonumber(db.hudBlipScale) or 1
+    if scale < 0.5 then scale = 0.5 elseif scale > 3 then scale = 3 end
+
+    Minimap:SetScale(scale)
+    Minimap:SetSize(size / scale, size / scale)
+    Minimap:ClearAllPoints()
+    Minimap:SetPoint("CENTER", UIParent, "CENTER",
+        (db.hudX or 0) / scale, (db.hudY or 0) / scale)
+end
+
+-- ---------------------------------------------------------------------------
+-- TAKING IT OFF ITS PEG.
+--
+-- Centre is the right default and the wrong place for plenty of people: it's also
+-- where your character stands, where the boss frames go, and where every other
+-- addon puts its warnings. So the HUD unpins and drags.
+--
+-- WE DO NOT DRAG THE MINIMAP. StartMoving on a Blizzard frame is a state change on
+-- somebody else's widget -- it rewrites their anchors to whatever the cursor did,
+-- and we'd never get the original point back cleanly. Instead this is a frame of
+-- OURS, the size and shape of the HUD, which drags normally; we read where it
+-- ended up and re-place the minimap ourselves through the same placeMinimap() the
+-- options sliders use. The minimap is only ever positioned by us, in one place.
+--
+-- It's mouse-enabled, so it only exists while you're moving it -- an invisible
+-- 400px circle that eats mouselook in the middle of the screen is the single
+-- worst thing this addon could ship. Right-click, /eu hud lock, or the fight
+-- starting all put it away.
+-- ---------------------------------------------------------------------------
+local mover
+local SNAP = 8      -- px from an axis where we call it centred (Alt to override)
+
+function layoutMover()
+    if not (mover and mover:IsShown()) then return end
+    local db = NS.db
+    local size = db.hudSize or 400
+    mover:SetSize(size, size)
+    if not mover.dragging then
+        mover:ClearAllPoints()
+        mover:SetPoint("CENTER", UIParent, "CENTER", db.hudX or 0, db.hudY or 0)
+    end
+    mover.readout:SetFormattedText("%d, %d", db.hudX or 0, db.hudY or 0)
+end
+
+function hideMover()
+    if mover then mover:Hide() end
+end
+
+-- Where the mover ended up, in the same screen-pixel offsets hudX/hudY speak.
+local function commitMover()
+    local db = NS.db
+    if not (db and mover) then return end
+
+    local cx, cy = UIParent:GetCenter()
+    local mx, my = mover:GetCenter()
+    if not (cx and mx) then return end
+
+    local x = math.floor(mx - cx + 0.5)
+    local y = math.floor(my - cy + 0.5)
+
+    -- Snap to the middle. Getting a HUD exactly centred on one axis by hand is
+    -- fiddly and it's the position most people want, so within a few pixels we
+    -- call it centred -- and say so in the readout, so it never looks like drift.
+    if not IsAltKeyDown() then
+        if math.abs(x) <= SNAP then x = 0 end
+        if math.abs(y) <= SNAP then y = 0 end
+    end
+
+    db.hudX, db.hudY = x, y
+    if active then
+        placeMinimap()
+    end
+    layoutMover()
+end
+
+local function ensureMover()
+    if mover then return mover end
+
+    mover = CreateFrame("Frame", "EyesUpHudMover", UIParent)
+    mover:SetFrameStrata("DIALOG")
+    mover:SetClampedToScreen(true)
+    mover:SetMovable(true)
+    mover:EnableMouse(true)
+    mover:RegisterForDrag("LeftButton")
+    mover:Hide()
+
+    -- The footprint, drawn as the disc the HUD actually is rather than the square
+    -- the frame actually is -- so what you're dragging is what you'll get.
+    local disc = mover:CreateTexture(nil, "BACKGROUND")
+    disc:SetAllPoints(mover)
+    disc:SetColorTexture(0.1, 0.6, 0.3, 0.18)
+    disc:SetMask(NS.CustomGlyphDir .. "MASK_ROUND")
+
+    -- Crosshair, so you can line the centre up on something.
+    local vline = mover:CreateTexture(nil, "ARTWORK")
+    vline:SetColorTexture(0.4, 1, 0.6, 0.5)
+    vline:SetPoint("TOP", mover, "TOP", 0, 0)
+    vline:SetPoint("BOTTOM", mover, "BOTTOM", 0, 0)
+    vline:SetWidth(1)
+    local hline = mover:CreateTexture(nil, "ARTWORK")
+    hline:SetColorTexture(0.4, 1, 0.6, 0.5)
+    hline:SetPoint("LEFT", mover, "LEFT", 0, 0)
+    hline:SetPoint("RIGHT", mover, "RIGHT", 0, 0)
+    hline:SetHeight(1)
+
+    local title = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("CENTER", mover, "CENTER", 0, 24)
+    title:SetText("Eyes Up HUD |cffffcc00unlocked|r")
+
+    local hint = mover:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hint:SetPoint("CENTER", mover, "CENTER", 0, 4)
+    hint:SetText("drag me  |cff888888--|r  right-click to lock")
+
+    mover.readout = mover:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    mover.readout:SetPoint("CENTER", mover, "CENTER", 0, -14)
+
+    mover:SetScript("OnDragStart", function(self)
+        self.dragging = true
+        self:StartMoving()
+    end)
+    mover:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        self.dragging = false
+        commitMover()
+    end)
+    -- Live, not on release. Dragging a green circle around and having the blips
+    -- catch up afterwards tells you nothing about whether it's in the right place.
+    mover:SetScript("OnUpdate", function(self)
+        if self.dragging then commitMover() end
+    end)
+    mover:SetScript("OnMouseUp", function(self, button)
+        if button == "RightButton" then Hud.SetLocked(true) end
+    end)
+
+    -- A fight starting pins it. Everything else in this file stands down in combat
+    -- (see notNow), so an unlocked HUD would be a mouse trap you couldn't move.
+    mover:RegisterEvent("PLAYER_REGEN_DISABLED")
+    mover:SetScript("OnEvent", function()
+        if NS.db and not NS.db.hudLocked then Hud.SetLocked(true) end
+    end)
+
+    return mover
+end
+
+function Hud.IsLocked()
+    return not NS.db or NS.db.hudLocked ~= false
+end
+
+function Hud.SetLocked(on)
+    local db = NS.db
+    if not db then return end
+    db.hudLocked = on and true or false
+
+    if db.hudLocked then
+        hideMover()
+        return true
+    end
+
+    -- Unlocking is only meaningful with something to aim at -- and this only ever
+    -- moves the HUD. With the HUD down, the Minimap is back in its corner where its
+    -- owner (Blizzard, or whatever suite runs it) put it, and none of this touches
+    -- that: hudX/hudY are applied by placeMinimap, which only ever runs while the
+    -- HUD is up. So there is nothing here to unlock, and we say so rather than
+    -- silently arming a handle over somebody's corner minimap.
+    if not active then
+        db.hudLocked = true
+        NS.Print("the HUD isn't up -- |cffffff00/eu on|r first, then unlock it.")
+        NS.Print("  |cff888888(This only ever moves the HUD. Your corner minimap is left alone.)|r")
+        return false
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        db.hudLocked = true
+        NS.Print("not in combat -- the HUD can't be moved mid-fight.")
+        return false
+    end
+
+    ensureMover()
+    mover:Show()
+    layoutMover()
+    return true
+end
+
+function Hud.ToggleLocked()
+    return Hud.SetLocked(not Hud.IsLocked())
+end
+
+-- Exact placement, for anyone who'd rather type it than drag it -- and the way
+-- back to the middle when a drag has gone somewhere silly.
+function Hud.SetPosition(x, y)
+    local db = NS.db
+    if not db then return end
+    db.hudX = math.floor(tonumber(x) or 0)
+    db.hudY = math.floor(tonumber(y) or 0)
+    if active then
+        placeMinimap()
+    end
+    layoutMover()
+end
+
+function Hud.ResetPosition()
+    Hud.SetPosition(0, 0)
+end
+
 function Hud.ApplyLook()
     if not active then return end
     -- Sizing and re-masking the Minimap is frame surgery, and applyRotation writes
@@ -1290,10 +1533,7 @@ function Hud.ApplyLook()
     -- tracking code raised an error mid-ApplyLook. So the core is unconditional and
     -- goes FIRST, and every nice-to-have after it is wrapped so a failure can never
     -- reach back and undo the mask.
-    local size = db.hudSize or 400
-    Minimap:SetSize(size, size)
-    Minimap:ClearAllPoints()
-    Minimap:SetPoint("CENTER", UIParent, "CENTER", db.hudX or 0, db.hudY or 0)
+    placeMinimap()
     Minimap:SetAlpha(db.hudAlpha or 1)
 
     -- THE MASK IS A GATE, NOT A FADE. See the top of this file.
@@ -1339,6 +1579,7 @@ function Hud.ApplyLook()
     pcall(applyRotation)
     pcall(applyRing)
     pcall(applyTracking)
+    pcall(layoutMover)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1494,13 +1735,74 @@ restWatch:SetScript("OnEvent", function()
     C_Timer.After(0, Hud.Refresh)
 end)
 
+-- ---------------------------------------------------------------------------
+-- OUT OF THE WAY WHILE YOU'RE FIGHTING.
+--
+-- A hundred-yard circle of herb markers across the middle of the screen is exactly
+-- what you don't want on a pull. "Step aside in cities" and "in dungeons" already
+-- cover the places you're reliably not gathering; this covers the moment.
+--
+-- IT IS NOT Disable(). Everything in Disable is frame surgery -- reparenting,
+-- resizing, re-masking -- and every bit of it stands down in combat (see notNow),
+-- so a hide that went through Disable would land when the fight ENDED. Which is
+-- the exact opposite of the feature.
+--
+-- SO IT IS Hide(), AND SETALPHA IS NOT AN OPTION. Fading the HUD out is the obvious
+-- move and it does nothing: the blips ignore frame alpha. That's measured, and the
+-- whole addon leans on it -- hudAlpha sits at 0.01 precisely so the map vanishes and
+-- the blips don't. Turn that dial to zero in a fight and you'd have every blip at
+-- full strength over the boss. Hide() is the only lever that takes them with it.
+--
+-- And Hide() is safe where Disable isn't, because visibility is not structure:
+-- nothing is reparented, resized or re-masked, so there's no protected call to be
+-- refused and nothing to defer. It reacts on the event, which is the point.
+--
+-- The corner map is deliberately left alone. That's a real map in the corner, and a
+-- fight is when you'd actually want one.
+-- ---------------------------------------------------------------------------
+local combatHidden = false
+
+function Hud.SetCombatHidden(on)
+    if not Minimap then return end
+
+    if on then
+        if combatHidden or not active then return end
+        combatHidden = true
+        Minimap:Hide()
+    else
+        if not combatHidden then return end
+        combatHidden = false
+        -- Only put it back if the HUD still wants to be up. A zone change or a
+        -- keybind during the fight may have decided otherwise, and Refresh below
+        -- is what settles that -- this just undoes our own hide.
+        if active then
+            Minimap:Show()
+        end
+    end
+end
+
+function Hud.IsCombatHidden()
+    return combatHidden
+end
+
 -- Settling up. Every path that gave up in combat -- a zone change, the keybind, a
 -- checkbox, the CVar watcher -- collapses to the same two questions: should the HUD
 -- be up, and does it look right. Ask both, once, and everything that was owed lands
 -- together.
 local combatWatch = CreateFrame("Frame")
 combatWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatWatch:SetScript("OnEvent", function()
+combatWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
+combatWatch:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then
+        if NS.db and NS.db.hudHideInCombat then Hud.SetCombatHidden(true) end
+        return
+    end
+
+    -- Out of combat. Un-hide FIRST, then settle everything that was deferred --
+    -- Refresh may well decide to take the HUD down, and it should be looking at a
+    -- HUD that's actually up when it does.
+    Hud.SetCombatHidden(false)
+
     if not combatPending then return end
     combatPending = false
     Hud.Refresh()
@@ -1508,22 +1810,112 @@ combatWatch:SetScript("OnEvent", function()
 end)
 
 -- ---------------------------------------------------------------------------
--- Can we restyle the blips?
+-- CAN WE RESTYLE THE BLIPS? Settled, and worth writing down so nobody spends
+-- another evening on it.
 --
--- Almost certainly not, and it's worth knowing WHY rather than trying and
--- shrugging. There are two blip atlases: Interface\Minimap\ObjectIcons.blp, which
--- you can overwrite and which the game ignores, and ObjectIconsAtlas.blp, which is
--- the one it actually uses and which you cannot. The only door was
--- Minimap:SetBlipTexture -- and Midnight appears to have removed it (the addon
--- "Keyboard's Minimap Icons" was retired for exactly this reason).
+-- NO, not the artwork and not the colour. There are two blip atlases:
+-- Interface\Minimap\ObjectIcons.blp, which you can overwrite and which the game
+-- ignores, and ObjectIconsAtlas.blp, which is the one it draws from and which you
+-- cannot. The only door was Minimap:SetBlipTexture, and 12.0.7 REMOVED IT -- which
+-- is why "Keyboard's Minimap Icons" and every other blip-skin addon retired that
+-- patch rather than fixing anything.
 --
--- So the blips are Blizzard's, at Blizzard's size, in Blizzard's colours. We can
--- move them, rotate them, scale the whole map, and mask the world out from behind
--- them. We cannot repaint them. Say so plainly rather than shipping a setting that
--- silently does nothing.
+-- Nor is there a Lua object to reach for instead. The blips are engine-drawn: they
+-- are not Texture regions under the Minimap (hideLuaTextures walks every one of
+-- those and the blips survive it, which is the whole reason that sweep is safe),
+-- and they don't take the frame's alpha either -- hudAlpha deletes the terrain and
+-- leaves them at full strength on 12.0.7 and 12.1 both. Something that ignores the
+-- frame's alpha is not going to take a vertex colour from it.
+--
+-- WHAT IS LEFT IS SIZE, and only size. Frame scale is a transform on everything the
+-- frame draws, engine artwork included, so scaling up and shrinking by the same
+-- factor gives bigger dots at the same circle and the same hundred yards. Confirmed
+-- in-client. See placeMinimap.
+--
+-- TWO OTHER THINGS WERE TRIED AND ARE GONE, which is worth writing down so they
+-- don't get re-invented. A disc of our own UNDER the map, to read pale blips
+-- against; and a MOD (multiply) overlay OVER it, which is the only thing in the
+-- client that changes what colour a blip comes out. Both worked in the sense that
+-- they drew. Neither earned its place: the disc trades away the view through the
+-- circle, which is most of the point of a heads-up display, and the tint colours the
+-- world showing through by exactly as much as the blips, because a multiply cannot
+-- tell them apart. A setting whose honest description is "and it ruins the thing you
+-- turned the addon on for" is a setting not to have.
+--
+-- Per-TYPE colour -- herbs green, ore orange -- was never on the list and can't be:
+-- it needs to know which blip is which, and nothing in the client will say. The
+-- nearest thing the addon has is the tracking list, which decides which types get
+-- drawn at all.
+--
+-- CanSkinBlips is kept as a live probe rather than a constant `false`, so if a
+-- patch ever puts SetBlipTexture back, /eu hud blips says so instead of us
+-- re-deriving all of the above.
 -- ---------------------------------------------------------------------------
 function Hud.CanSkinBlips()
     return Minimap.SetBlipTexture ~= nil
+end
+
+-- Count the Lua Texture regions under the Minimap. The number is the evidence for
+-- "the blips are engine-drawn": you can see a dozen blips on screen and this will
+-- report the map's own furniture and nothing else.
+local function countLuaTextures(frame, depth)
+    if not frame or depth > 3 then return 0 end
+    local n = 0
+    if frame.GetRegions then
+        for _, r in ipairs({ frame:GetRegions() }) do
+            if r and r.GetObjectType and r:GetObjectType() == "Texture" then n = n + 1 end
+        end
+    end
+    if frame.GetChildren then
+        for _, c in ipairs({ frame:GetChildren() }) do
+            n = n + countLuaTextures(c, depth + 1)
+        end
+    end
+    return n
+end
+
+-- /eu hud blips -- what this client will and won't let us do to them, measured
+-- rather than remembered.
+function Hud.BlipReport()
+    NS.Print("|cff66ff66blips:|r what this client allows.")
+
+    local doors = {
+        { "SetBlipTexture",          "swap the whole blip atlas" },
+        { "SetIconTexture",          "swap the POI icons" },
+        { "SetPlayerTexture",        "replace the player arrow" },
+        { "SetStaticPOIArrowTexture", "replace the edge-of-map arrows" },
+    }
+    for _, d in ipairs(doors) do
+        NS.Printf("  %-24s %s  |cff888888%s|r", d[1],
+            Minimap[d[1]] and "|cff66ff66present|r" or "|cffff6666gone|r", d[2])
+    end
+
+    local textures = countLuaTextures(Minimap, 0)
+    NS.Printf("  Lua textures under the map: |cffffcc00%d|r -- none of them a blip; "
+        .. "that's why the sweep is safe.", textures)
+
+    NS.Printf("  blip size: |cff66ff66%.2fx|r", tonumber(NS.db and NS.db.hudBlipScale) or 1)
+
+    if not Hud.CanSkinBlips() then
+        NS.Print("  |cffffcc00Recolouring or reskinning the blips themselves isn't possible|r --")
+        NS.Print("  12.0.7 removed SetBlipTexture and they're engine-drawn, so there's no")
+        NS.Print("  Lua object to tint. Size is the whole of what's left:")
+        NS.Print("  |cffffff00/eu blips 1.6|r")
+    else
+        NS.Print("  |cff66ff66SetBlipTexture is back on this client|r -- a real blip skin is possible")
+        NS.Print("  again. Worth revisiting the note above Hud.CanSkinBlips.")
+    end
+end
+
+-- The one blip dial there is.
+function Hud.SetBlipScale(v)
+    local db = NS.db
+    if not db then return end
+    v = tonumber(v) or 1
+    if v < 0.5 then v = 0.5 elseif v > 3 then v = 3 end
+    db.hudBlipScale = v
+    if active then placeMinimap() end
+    return v
 end
 
 function Hud.Report()
@@ -1542,7 +1934,17 @@ function Hud.Report()
     NS.Printf("range: |cff66ff66%s yards|r, every direction, live and exact",
         r and math.floor(r) or "?")
 
-    NS.Printf("blip skinning: %s", Hud.CanSkinBlips()
+    if combatHidden then
+        NS.Print("|cffffcc00stood aside for the fight|r -- back when it ends.")
+    end
+
+    NS.Printf("position: %d, %d (%s)   blip size: %.2fx",
+        NS.db.hudX or 0, NS.db.hudY or 0,
+        Hud.IsLocked() and "pinned" or "|cffffcc00unlocked|r",
+        tonumber(NS.db.hudBlipScale) or 1)
+
+    NS.Printf("blip skinning: %s -- |cffffff00/eu blips|r for the detail",
+        Hud.CanSkinBlips()
         and "|cff66ff66available|r (SetBlipTexture survived)"
-        or  "|cffff6666not possible|r -- Blizzard removed SetBlipTexture in 12.0")
+        or  "|cffff6666not possible|r (SetBlipTexture went in 12.0.7)")
 end

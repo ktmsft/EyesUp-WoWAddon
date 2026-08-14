@@ -166,7 +166,11 @@ NS.FallbackGlyph = "Interface\\ICONS\\INV_Misc_QuestionMark"
 -- A nil entry below is safe and different: it means "no art for this type", and
 -- the cue quietly uses the built-in Blizzard glyph instead.
 -- -----------------------------------------------------------------------------
-NS.CustomGlyphDir = "Interface\\AddOns\\EyesUp\\textures\\"
+-- Built from the folder we're actually loaded from, never written out as a
+-- literal. A hardcoded "...\\EyesUp\\..." resolves to the LIVE install whenever
+-- one is present, so the dev checkout would quietly wear the shipped build's art
+-- and test none of its own -- and a texture edit would look like it did nothing.
+NS.CustomGlyphDir = "Interface\\AddOns\\" .. addonName .. "\\textures\\"
 NS.CustomGlyph = {
     HERB     = NS.CustomGlyphDir .. "HERBING",
     MINE     = NS.CustomGlyphDir .. "MINING",
@@ -540,6 +544,17 @@ NS.defaults = {
     -- from cities so you can want one and not the other.
     hudHideInDungeons = true,
 
+    -- Fold the HUD away the moment a fight starts, and bring it back when it ends.
+    --
+    -- Cities and dungeons cover the PLACES you're not gathering; this covers the
+    -- MOMENT. Off by default, because plenty of gathering happens with something
+    -- chewing on you and coming back to an empty screen every time a boar aggros
+    -- would be its own kind of annoying.
+    --
+    -- Note this is a hide, not a shutdown -- see Hud.SetCombatHidden for why it has
+    -- to be, and why fading it out instead would leave every blip on screen.
+    hudHideInCombat  = false,
+
     -- Hover a blip and the game tells you what it is -- but that needs the mouse
     -- ON, and a mouse-enabled minimap in the middle of your screen swallows clicks
     -- over its whole circle (annoying while you're grabbing nodes). So it's off by
@@ -567,6 +582,31 @@ NS.defaults = {
     hudSize          = 400,     -- pixels across
     hudX             = 0,       -- offset from screen center
     hudY             = 0,
+
+    -- Is the HUD pinned where it is?
+    --
+    -- Dead centre is the right default -- it's a heads-up display, and the middle of
+    -- the screen is where your eyes already are. But it's the middle of the screen,
+    -- which is also where your character is, where your boss frames are, and where
+    -- every other addon put its warnings. So it comes off its peg: unlock, drag it
+    -- to the upper third (or off to one side, over nothing), and pin it again.
+    --
+    -- Locked by default because an unlocked HUD is a mouse-enabled 400px circle in
+    -- the middle of your screen, and that eats your mouselook. See Hud's mover.
+    hudLocked        = true,
+
+    -- ---- the blips themselves: what we can and can't do to them ----
+    --
+    -- Short version, measured on 12.0.7 and confirmed in-client: we can change their
+    -- SIZE. Nothing else. Not their artwork and not their colour, per type or at all
+    -- -- Blizzard removed Minimap:SetBlipTexture in 12.0.7 and the blips are engine-
+    -- drawn, so there is no Lua object to tint. The long version is in Hud.lua,
+    -- including the two things that were tried and taken back out.
+
+    -- Blip size, by scaling the whole minimap and shrinking it by the same factor
+    -- so the HUD stays the size you asked for and a blip on the rim is still a
+    -- hundred yards away. Only the artwork changes size. 1 is Blizzard's.
+    hudBlipScale     = 1,
     -- THE MAP's opacity -- not the blips'. This is the dial that deletes the
     -- terrain now, and it does not reach the blips on any client we've measured
     -- (12.0.7 and 12.1 both). At a hundredth the map is simply gone and the blips
@@ -620,6 +660,19 @@ NS.defaults = {
     -- overlap: the HUD is what's gatherable, the corner is where you are.
     cornerMap        = true,
     cornerZoom       = 1.0,     -- multiplier on the canvas's max zoom
+
+    -- How solid the corner map is. Full by default -- it's a map, you're meant to
+    -- read it -- but it sits in the corner all the time, so turning it down to sit
+    -- quietly behind the rest of your UI is a fair thing to want.
+    --
+    -- This is the ONLY opacity on that map now. It used to be multiplied by a second
+    -- one of Blizzard's, meant for watching a battle through the Battlefield Map,
+    -- which is why the corner came up as a ghost -- see the long note in Corner.lua.
+    --
+    -- Floored at 0.1 by the slider and the command, not 0: an invisible map reads as
+    -- a broken addon, and "off" already has a switch of its own (cornerMap). Same
+    -- argument as hudAlpha. Your position arrow doesn't fade with it -- that's the
+    -- one thing you glance at the corner FOR.
     cornerAlpha      = 1.0,
 
     -- "circle" | "square". The hole the map sits in is round -- the tray paints a
@@ -627,6 +680,25 @@ NS.defaults = {
     -- forgot to finish. Costs no new art: it's the same texture the disc uses.
     -- See the long note in Corner.lua for why this isn't a SetMaskTexture call.
     cornerShape      = "circle",
+
+    -- A frame around the corner map, so it reads as part of the UI rather than a
+    -- hole with a map in it.
+    --
+    -- The art is never named here. It's discovered at runtime -- what the live
+    -- minimap is wearing first, then an atlas this client is asked about and
+    -- confirms, and if neither, nothing at all. On means "wear a frame if there is
+    -- a real one to wear", not "draw something". See the long note in Corner.lua.
+    cornerBorder     = true,
+    cornerBorderScale = nil,   -- nil = the size the art itself implies. Override to taste.
+
+    -- How much of the tray the MAP fills, with the frame drawn around it.
+    --
+    -- 1 is the whole thing, which is the fit Blizzard drew: the stock ring's inner
+    -- edge lands exactly on the rim of a full-size map. Push the ring out past its
+    -- native size and it leaves a moat -- so this is how you pull the map in to meet
+    -- it again, or just how you sit the map further inside its frame because you
+    -- like the look. See mapSize in Corner.lua.
+    cornerMapScale   = 1.0,
 
     -- The compass ring.
     --

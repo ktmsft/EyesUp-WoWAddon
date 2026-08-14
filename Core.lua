@@ -277,9 +277,72 @@ function NS.SettingsAreShared()
     return EyesUpDB and EyesUpDB.useAccount == true
 end
 
+-- ---------------------------------------------------------------------------
+-- RELOADING IS PROTECTED -- AND THIS DOES MORE THAN RELOAD.
+--
+-- C_UI.Reload is a protected call. Ask for it in combat and the client refuses:
+--
+--     ADDON_ACTION_BLOCKED: tried to call the protected function 'Reload()'
+--
+-- On its own that would be survivable noise. It isn't on its own, because by the
+-- time we ask, we have ALREADY copied every setting into the other file and flipped
+-- EyesUpDB.useAccount. So a blocked reload doesn't CANCEL the change, it STRANDS it:
+-- the saved flag says "shared", NS.db still points at the per-character table, and
+-- every setting you touch between there and your next login is written to the file
+-- the addon has already decided to stop reading. Nothing errors, nothing looks
+-- wrong, and an evening's settings quietly go nowhere.
+--
+-- So the whole operation waits, not just the reload. In combat we do NOTHING and
+-- queue it -- one thing that either happened or didn't, never half of one. And the
+-- one-second timer re-checks on its way out, because a fight can start inside that
+-- second and that path would be blocked with the copy already made.
+-- ---------------------------------------------------------------------------
+local pendingShare = nil        -- a share flip waiting for the fight to end
+local reloadWatch = CreateFrame("Frame")
+reloadWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+
+-- Wrap the reload in a real function: passing `C_UI and C_UI.Reload or ReloadUI`
+-- directly hands C_Timer.After a nil when neither name resolves on the running
+-- client ("bad argument #2 to C_Timer.After"). A closure is always a function, and
+-- it calls whichever reload API actually exists.
+local function reloadNow()
+    if InCombatLockdown and InCombatLockdown() then
+        reloadWatch.wantReload = true
+        NS.Print("|cffffcc00...a fight started. Holding the reload until it's over.|r")
+        return
+    end
+    if C_UI and C_UI.Reload then C_UI.Reload()
+    elseif ReloadUI then ReloadUI() end
+end
+
+reloadWatch:SetScript("OnEvent", function(self)
+    if pendingShare ~= nil then
+        local want = pendingShare
+        pendingShare = nil
+        NS.SetSettingsShared(want)
+        return
+    end
+    if self.wantReload then
+        self.wantReload = false
+        reloadNow()
+    end
+end)
+
 function NS.SetSettingsShared(shared)
     shared = shared and true or false
     if NS.SettingsAreShared() == shared then return end
+
+    -- Nothing at all in combat -- see above. Not the copy, not the flag, not the
+    -- reload. Queued whole, applied whole.
+    if InCombatLockdown and InCombatLockdown() then
+        pendingShare = shared
+        NS.Print("|cffffcc00not mid-fight|r -- switching your settings over needs a reload.")
+        NS.Print("  I'll do the whole thing the moment the fight ends. Nothing has changed yet.")
+        -- Put the tick back where it was, so the page never claims a state we
+        -- haven't reached. The line above is what explains it.
+        if NS.Options then NS.Options.Refresh() end
+        return
+    end
 
     local target = shared and EyesUpAccountDB or EyesUpDB
     deepCopy(NS.db, target)          -- carry everything (settings AND gathered data) across
@@ -287,14 +350,7 @@ function NS.SetSettingsShared(shared)
 
     NS.Printf("settings are now |cffffff00%s|r. Reloading to apply...",
         shared and "shared across all your characters" or "per-character")
-    -- Wrap the reload in a real function: passing `C_UI and C_UI.Reload or ReloadUI`
-    -- directly hands C_Timer.After a nil when neither name resolves on the running client
-    -- ("bad argument #2 to C_Timer.After"). A closure is always a function, and it calls
-    -- whichever reload API actually exists.
-    C_Timer.After(1, function()
-        if C_UI and C_UI.Reload then C_UI.Reload()
-        elseif ReloadUI then ReloadUI() end
-    end)
+    C_Timer.After(1, reloadNow)
 end
 
 -- Park a note at wherever you're standing right now.
@@ -577,7 +633,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
             NS.Print("|cff88ff88The blip HUD is back on -- it had been switched off by a "
                 .. "compatibility check that misread this game version and thought another "
                 .. "addon was running your minimap. Nothing was.|r "
-                .. "|cffffff00/eu hud off|r if you'd rather it stayed off.")
+                .. "|cffffff00/eu off|r if you'd rather it stayed off.")
         end
         if NS.Seed.IsAvailable() then
             NS.Print("|cff88ff88GatherMate2_Data found — the cue works in zones you've never farmed.|r")
@@ -639,9 +695,39 @@ local TYPE_ARG = {
 local PRIORITY_ARG = {
     low = NS.Priority.LOW, normal = NS.Priority.NORMAL, high = NS.Priority.HIGH,
 }
+-- ---------------------------------------------------------------------------
+-- THE WORD "HUD" IS NOISE NOW.
+--
+-- This addon is the HUD. Everything anyone types at it is about the circle in the
+-- middle of the screen or the blips in it, and making them all say "hud" first was
+-- a prefix that only ever earned its keep back when the cue was the main event.
+--
+-- So: any of these as the first word is quietly rewritten into the `hud` handler.
+-- `/eu size 400` and `/eu hud size 400` are one command with two spellings, and the
+-- long form still works -- nothing anyone has in a macro breaks.
+--
+-- What's NOT in here is the cue's half. Those commands still exist (the options
+-- page doesn't cover all of them) but they're off the front page: `/eu more`.
+local HUD_WORDS = {
+    on = true, off = true, size = true, move = true, unlock = true, lock = true,
+    centre = true, center = true, pos = true, status = true,
+    blips = true, blipsize = true,
+    rotate = true, ring = true, alpha = true, mask = true, sweep = true,
+    track = true, map = true, mapalpha = true, zoom = true, shape = true,
+    border = true, mapsize = true, city = true, combat = true,
+    corner = true, compat = true,
+}
+
 SlashCmdList.EYESUP = function(msg)
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     local cmd, arg = msg:match("^(%S*)%s*(.-)$")
+
+    if HUD_WORDS[cmd] then
+        arg = (arg ~= "") and (cmd .. " " .. arg) or cmd
+        cmd = "hud"
+    elseif cmd:match("^%d+$") then
+        arg, cmd = cmd, "hud"          -- /eu 400 -- the size, the way it always was
+    end
 
     if cmd == "" or cmd == "config" or cmd == "options" then
         NS.Options.Open()
@@ -663,18 +749,40 @@ SlashCmdList.EYESUP = function(msg)
                 tostring(NS.db.mode or "cue"))
         end
 
-    elseif cmd == "lock" then
-        NS.db.locked = true; applyLayouts(); NS.Print("locked down.")
+    -- ---- the cue, in one place --------------------------------------------
+    -- `lock` and `unlock` used to be the cue's, at the top level. The HUD has them
+    -- now (it's what people actually want to move), so everything the cue does that
+    -- the options page doesn't cover lives here instead of scattered across the
+    -- front page. Bare `/eu cue` answers the only question anyone asks it.
+    elseif cmd == "cue" or cmd == "reset" then
+        if cmd == "reset" or arg == "reset" then
+            NS.db.posX, NS.db.posY = 0, 0
+            NS.db.cuePosX = NS.defaults.cuePosX
+            NS.db.cuePosY = NS.defaults.cuePosY
+            applyLayouts(); NS.Print("cue back in the middle.")
 
-    elseif cmd == "unlock" then
-        NS.db.locked = false; applyLayouts()
-        NS.Print("unlocked — drag the cue (or the radar) wherever suits you.")
+        elseif arg == "lock" or arg == "unlock" then
+            NS.db.locked = (arg == "lock")
+            applyLayouts()
+            NS.Print(NS.db.locked and "cue locked down."
+                or "cue unlocked — drag it (or the radar) wherever suits you.")
+            NS.Print("  |cff888888The HUD moves separately:|r |cffffff00/eu move|r")
 
-    elseif cmd == "reset" then
-        NS.db.posX, NS.db.posY = 0, 0
-        NS.db.cuePosX = NS.defaults.cuePosX
-        NS.db.cuePosY = NS.defaults.cuePosY
-        applyLayouts(); NS.Print("back to the middle.")
+        else
+            -- "Why is nothing happening?" -- answered in four lines.
+            NS.Printf("mode: %s", NS.db.showGuesses
+                and "|cffffcc00confirmed + guesses|r" or "|cff66ff66confirmed only|r (default)")
+            NS.Printf("soft targeting: %s", NS.Live.IsReady()
+                and "|cff66ff66on|r — live nodes can be seen"
+                or "|cffff6666OFF — the cue can never fire.|r Set |cffffff00/eu softtarget on|r")
+            NS.Printf("GatherMate2_Data: %s (optional)", NS.Seed.IsAvailable()
+                and "|cff66ff66found|r — live nodes can be pointed at anywhere"
+                or "|cffffcc00absent|r — live nodes get an arrow once you've gathered that species once")
+            local mapID = C_Map.GetBestMapForUnit("player")
+            NS.Printf("this zone: %s known node positions",
+                mapID and tostring(NS.Seed.CountOnMap(mapID) or 0) or "?")
+            NS.Print("  |cffffff00/eu cue lock|unlock|reset|r  |cff888888-- the rest is on the options page|r")
+        end
 
     elseif cmd == "mark" then
         local t = TYPE_ARG[arg]
@@ -769,15 +877,95 @@ SlashCmdList.EYESUP = function(msg)
             NS.Printf("  seeing |cff66ff66%s yards|r in every direction -- the game's own markers,",
                 r and math.floor(r) or "?")
             NS.Print("  live and exact. Nothing here is a guess.")
-            NS.Print("  |cffffcc00Your corner minimap is gone while this is on.|r |cffffff00/eu hud off|r brings it back.")
+            NS.Print("  |cffffcc00Your corner minimap is gone while this is on.|r |cffffff00/eu off|r brings it back.")
             if NS.db.hudHideInCity then
-                NS.Print("  (It steps aside in cities -- town's not for gathering. |cffffff00/eu hud city off|r to keep it.)")
+                NS.Print("  (It steps aside in cities -- town's not for gathering. |cffffff00/eu city off|r to keep it.)")
             end
             NS.Print("  Needs Find Herbs / Find Minerals ticked -- these ARE those blips.")
-        elseif arg:match("^%d+$") then
-            NS.db.hudSize = tonumber(arg)
-            NS.Hud.ApplyLook()
-            NS.Printf("hud size: %d px", NS.db.hudSize)
+        elseif arg:match("^%d+$") or arg:match("^size") then
+            -- "/eu 400" and "/eu size 400" are the same thing.
+            local v = tonumber(arg:match("^(%d+)$") or arg:match("^size%s+(%d+)$"))
+            if v then
+                NS.db.hudSize = math.max(100, math.min(800, v))
+                NS.Hud.ApplyLook()
+                NS.Printf("hud size: %d px", NS.db.hudSize)
+            else
+                NS.Printf("usage: |cffffff00/eu size 100-800|r  (currently %d)", NS.db.hudSize or 400)
+            end
+
+        elseif arg == "unlock" or arg == "move" then
+            -- Off its peg. SetLocked does the talking when it can't (HUD down, or
+            -- mid-fight), so there's nothing to say here on success that the green
+            -- circle now on screen doesn't say better.
+            if NS.Hud.SetLocked(false) then
+                NS.Print("|cff66ff66unlocked.|r Drag the circle wherever suits you, then")
+                NS.Print("  right-click it (or |cffffff00/eu lock|r) to lock it there.")
+                NS.Print("  |cff888888Alt while dragging turns off the snap to centre.|r")
+            end
+
+        elseif arg == "lock" or arg == "pin" then
+            NS.Hud.SetLocked(true)
+            NS.Printf("|cff66ff66locked|r at %d, %d.", NS.db.hudX or 0, NS.db.hudY or 0)
+
+        elseif arg == "center" or arg == "centre" or arg == "reset" then
+            -- Only ever the HUD. hudX/hudY are read by placeMinimap, which only
+            -- runs while the HUD is up; with it down this just tidies the stored
+            -- position for next time and leaves the corner minimap alone.
+            NS.Hud.ResetPosition()
+            if NS.Options then NS.Options.Refresh() end
+            NS.Print(NS.Hud.IsActive()
+                and "hud snapped back to the middle of the screen."
+                or  "hud position reset to centre -- it'll be there when the HUD next comes up.")
+
+        elseif arg:match("^pos") then
+            local x, y = arg:match("^pos%s+(-?%d+)%s+(-?%d+)$")
+            if x then
+                NS.Hud.SetPosition(tonumber(x), tonumber(y))
+                NS.Printf("hud at %d, %d (from screen centre).", NS.db.hudX, NS.db.hudY)
+            else
+                NS.Print("usage: |cffffff00/eu pos <x> <y>|r  -- pixels from screen centre")
+                NS.Printf("  currently %d, %d. |cffffff00/eu move|r to drag it instead.",
+                    NS.db.hudX or 0, NS.db.hudY or 0)
+            end
+
+        elseif arg:match("^mapalpha") or arg:match("^map%s+alpha") then
+            -- The CORNER map's opacity. Deliberately not "alpha", which is the HUD's
+            -- and would be a miserable pair of commands to tell apart in a hurry.
+            local v = tonumber(arg:match("^mapalpha%s+([%d%.]+)$")
+                            or arg:match("^map%s+alpha%s+([%d%.]+)$"))
+            if v then
+                if v > 1 then v = v / 100 end          -- accept "60" as 60%
+                NS.db.cornerAlpha = math.max(0.1, math.min(1, v))
+                if NS.Corner then NS.Corner.ApplyLook() end
+                if NS.Options then NS.Options.Refresh() end
+                NS.Printf("corner map opacity: |cff66ff66%d%%|r", NS.db.cornerAlpha * 100)
+                NS.Print("  |cff888888Your position arrow stays at full strength.|r")
+            else
+                NS.Print("usage: |cffffff00/eu mapalpha 10-100|r  (or 0.1-1)")
+                NS.Printf("  currently %d%%. Floored at 10%% -- for none at all, "
+                    .. "|cffffff00/eu map off|r.", (NS.db.cornerAlpha or 1) * 100)
+            end
+
+        elseif arg == "blips" then
+            -- Bare: what this client will and won't let us do to them, measured live.
+            NS.Hud.BlipReport()
+
+        elseif arg:match("^blips%s") or arg:match("^blipsize") then
+            -- With a number: the one blip dial that works. Same word either way --
+            -- two commands one letter apart was never going to be remembered.
+            local v = tonumber(arg:match("^blips%s+([%d%.]+)$")
+                            or arg:match("^blipsize%s+([%d%.]+)$"))
+            if v then
+                v = NS.Hud.SetBlipScale(v)
+                if NS.Options then NS.Options.Refresh() end
+                NS.Printf("blip size: |cff66ff66%.2fx|r -- the circle and the range are unchanged, "
+                    .. "only the dots.", v)
+            else
+                NS.Print("usage: |cffffff00/eu blips 0.5-3|r  (1 = Blizzard's)")
+                NS.Print("  The blips are engine-drawn and can't be repainted, but scaling the")
+                NS.Print("  map scales the artwork -- so we scale up and shrink to match.")
+                NS.Print("  |cffffff00/eu blips|r on its own says what else this client allows.")
+            end
 
         elseif arg == "rotate" or arg == "rotate on" or arg == "rotate off" then
             if arg ~= "rotate" then NS.db.hudRotate = (arg == "rotate on") end
@@ -848,7 +1036,7 @@ SlashCmdList.EYESUP = function(msg)
                     v == "round" and " — Blizzard's own. The map is back; this is the control case."
                     or (v == "clear" and " — no map at all, blips only" or ""))
             else
-                NS.Print("usage: |cffffff00/eu hud mask clear|ghost|dim|vignette|round|r")
+                NS.Print("usage: |cffffff00/eu mask clear|ghost|dim|vignette|round|r")
                 NS.Print("  |cffffff00clear|r is the point of the addon (alpha 0). |cffffff00ghost|r is alpha 1 --")
                 NS.Print("  terrain you can't see, over a mask that isn't zero. |cffffff00round|r is")
                 NS.Print("  Blizzard's, and it's how you tell a masking problem from anything else.")
@@ -869,7 +1057,7 @@ SlashCmdList.EYESUP = function(msg)
                 NS.Print("  Did the map fade but the blips stay bright? Then frame alpha")
                 NS.Print("  doesn't reach them, and that's the way out.")
             else
-                NS.Print("usage: |cffffff00/eu hud alpha 0-1|r  (or 0-100)")
+                NS.Print("usage: |cffffff00/eu alpha 0-1|r  (or 0-100)")
             end
 
         elseif arg:match("^ring") then
@@ -884,15 +1072,26 @@ SlashCmdList.EYESUP = function(msg)
                 if n > 1 then n = n / 100 end          -- accept "25" as 25%
                 NS.db.hudRingAlpha = math.max(0, math.min(1, n))
             else
-                NS.Print("usage: |cffffff00/eu hud ring off|on|<0-100>|r")
+                NS.Print("usage: |cffffff00/eu ring off|on|<0-100>|r")
                 NS.Print("  It's not just decoration -- the ring IS the edge of your range.")
-                NS.Print("  A blip on the rim is 100 yards away. Try |cffffff00/eu hud ring 20|r.")
+                NS.Print("  A blip on the rim is 100 yards away. Try |cffffff00/eu ring 20|r.")
                 return
             end
             NS.Hud.ApplyLook()
             NS.Printf("compass ring: %s",
                 NS.db.hudRingAlpha <= 0 and "|cff888888hidden|r"
                 or ("|cff66ff66%d%%|r"):format(NS.db.hudRingAlpha * 100))
+
+        elseif arg == "combat on" or arg == "combat off" then
+            NS.db.hudHideInCombat = (arg == "combat on")
+            if NS.Hud.SetCombatHidden then
+                NS.Hud.SetCombatHidden(NS.db.hudHideInCombat
+                    and InCombatLockdown and InCombatLockdown() and true or false)
+            end
+            if NS.Options then NS.Options.Refresh() end
+            NS.Printf("hud in combat: %s", NS.db.hudHideInCombat
+                and "|cff66ff66steps aside|r — back when the fight ends (the corner map stays)"
+                or  "stays up")
 
         elseif arg == "city on" or arg == "city off" then
             NS.db.hudHideInCity = (arg == "city on")
@@ -910,6 +1109,46 @@ SlashCmdList.EYESUP = function(msg)
                 and "|cff66ff66on|r — roads, quests, party, fog, where the minimap was"
                 or  "off — just the dark disc and your buttons")
 
+        elseif arg:match("^mapsize") then
+            -- How much of the corner the MAP fills, with the frame drawn round it.
+            local v = tonumber(arg:match("^mapsize%s+([%d%.]+)$"))
+            if v then
+                if v > 1 then v = v / 100 end          -- accept "90" as 90%
+                NS.db.cornerMapScale = math.max(0.6, math.min(1, v))
+                if NS.Corner then NS.Corner.ApplyShape(); NS.Corner.ApplyLook() end
+                if NS.Options then NS.Options.Refresh() end
+                NS.Printf("corner map size: |cff66ff66%d%%|r of the corner", NS.db.cornerMapScale * 100)
+            else
+                NS.Print("usage: |cffffff00/eu mapsize 60-100|r  (or 0.6-1)")
+                NS.Printf("  currently %d%%. Pairs with |cffffff00/eu border|r: 100%% and a border of")
+                NS.Print("  1.09 is Blizzard's own fit, where the ring lands exactly on the rim.")
+            end
+
+        elseif arg == "border auto" then
+            -- Back to the size the art itself implies, whatever that turns out to be
+            -- on this client -- rather than a number somebody typed once.
+            NS.db.cornerBorderScale = nil
+            if NS.Corner then NS.Corner.ApplyShape() end
+            NS.Print("corner frame back to the size its art implies. |cffffff00/eu art|r says what that is.")
+
+        elseif arg == "border on" or arg == "border off" then
+            NS.db.cornerBorder = (arg == "border on")
+            if NS.Corner then NS.Corner.ApplyShape() end
+            if NS.Options then NS.Options.Refresh() end
+            NS.Printf("corner frame: %s", NS.db.cornerBorder
+                and "|cff66ff66on|r — if this client has real art for it (|cffffff00/eu art|r)"
+                or  "off")
+
+        elseif arg:match("^border") then
+            local v = tonumber(arg:match("^border%s+([%d%.]+)$"))
+            if v then
+                NS.db.cornerBorderScale = math.max(1, math.min(2, v))
+                if NS.Corner then NS.Corner.ApplyShape() end
+                NS.Printf("corner frame size: |cff66ff66%.2fx|r the map", NS.db.cornerBorderScale)
+            else
+                NS.Print("usage: |cffffff00/eu border on|off|r  or  |cffffff00/eu border 1.0-2.0|r (how far it overhangs)")
+            end
+
         elseif arg == "shape round" or arg == "shape square" then
             NS.db.cornerShape = (arg == "shape round") and "circle" or "square"
             if NS.Corner then NS.Corner.ApplyShape() end
@@ -925,7 +1164,7 @@ SlashCmdList.EYESUP = function(msg)
                 NS.Corner.ApplyLook()
                 NS.Printf("corner map zoom: %.2f (1.0 = as close as it goes)", NS.db.cornerZoom)
             else
-                NS.Print("usage: |cffffff00/eu hud zoom 0.2-1.0|r  (1.0 = tightest)")
+                NS.Print("usage: |cffffff00/eu zoom 0.2-1.0|r  (1.0 = tightest)")
             end
 
         elseif arg == "compat on" or arg == "compat off" then
@@ -957,17 +1196,30 @@ SlashCmdList.EYESUP = function(msg)
             NS.Hud.Report()
             NS.Printf("corner map: %s", NS.Corner.IsActive()
                 and "|cff66ff66on|r" or (NS.Corner.IsAvailable() and "off" or "|cffff6666unavailable|r"))
+            -- The two alphas that multiply. This is the line that would have named
+            -- "the corner map came up as a ghost" in one look instead of a session.
+            if NS.Corner.AlphaReport then
+                NS.Printf("corner alpha: %s", NS.Corner.AlphaReport())
+            end
             local owner = NS.Hud.MinimapOwner()
             if owner then
                 NS.Printf("minimap also managed by: |cffffcc00%s|r", owner)
             end
 
         else
-            NS.Print("usage: |cffffff00/eu hud|r [on|off | <px> | rotate on/off | ring off/<0-100> |")
-            NS.Print("            city on/off | track | track on/off | map on/off | zoom <n> |")
-            NS.Print("            shape round/square |")
-            NS.Print("            mask clear/ghost/dim/vignette/round | sweep on/off |")
-            NS.Print("            compat on/off | compat reset | status]")
+            -- The eight everyday ones are in the main help; these are the rest,
+            -- grouped by what you'd be trying to do. Every one of them also works
+            -- without the "hud" -- /eu ring 20 and /eu hud ring 20 are the same.
+            NS.Print("|cff66ff66the HUD, in full.|r The everyday ones: |cffffff00/eu|r")
+            print("  |cff888888look:|r    rotate on/off | ring off/<0-100> | alpha <0-1>")
+            print("  |cff888888blips:|r   blips <0.5-3>  |cff888888(size is the only one the client allows)|r")
+            print("  |cff888888place:|r   move | lock | centre | pos <x> <y> | size <px>")
+            print("  |cff888888corner:|r  map on/off | mapalpha <10-100> | zoom <n> | shape round/square")
+        print("           border on/off | border <1.0-2.0> | border auto | mapsize <60-100>")
+        print("           |cffffff00/eu art|r -- what border art this client actually has")
+            print("  |cff888888aside:|r   combat on/off | city on/off | corner on/off | compat on/off")
+            print("  |cff888888broken?:|r status | track | track on/off | sweep on/off |")
+            print("            mask clear/ghost/dim/vignette/round")
         end
 
     elseif cmd == "guesses" then
@@ -984,20 +1236,6 @@ SlashCmdList.EYESUP = function(msg)
             NS.Print("guesses |cff66ff66off|r — the cue only fires for nodes that are really there.")
             NS.Print("Shorter reach (~15-25 yards), but it never lies. |cffffff00/eu guesses on|r for the rest.")
         end
-
-    elseif cmd == "status" then
-        -- "Why is nothing happening?" -- answered in four lines.
-        NS.Printf("mode: %s", NS.db.showGuesses
-            and "|cffffcc00confirmed + guesses|r" or "|cff66ff66confirmed only|r (default)")
-        NS.Printf("soft targeting: %s", NS.Live.IsReady()
-            and "|cff66ff66on|r — live nodes can be seen"
-            or "|cffff6666OFF — the cue can never fire.|r Set |cffffff00/eu softtarget on|r")
-        NS.Printf("GatherMate2_Data: %s (optional)", NS.Seed.IsAvailable()
-            and "|cff66ff66found|r — live nodes can be pointed at anywhere"
-            or "|cffffcc00absent|r — live nodes get an arrow once you've gathered that species once")
-        local mapID = C_Map.GetBestMapForUnit("player")
-        NS.Printf("this zone: %s known node positions",
-            mapID and tostring(NS.Seed.CountOnMap(mapID) or 0) or "?")
 
     elseif cmd == "softtarget" then
         if arg == "off" then
@@ -1048,23 +1286,44 @@ SlashCmdList.EYESUP = function(msg)
         NS.db.debug = not NS.db.debug
         NS.Print("debug " .. (NS.db.debug and "on" or "off"))
 
-    else
-        NS.Print("what I can do:")
-        print("  |cffffff00/eu|r                 open the options")
-        print("  |cffffff00/eu toggle|r          eyes up / eyes closed")
+    -- ---- everything that isn't the HUD -------------------------------------
+    -- One door, so the front page can stay eight lines. Nothing here was removed;
+    -- it just stopped being the first thing you see when you ask for help.
+    elseif cmd == "art" then
+        -- Replaces "which texture should the corner map wear?" with a look at what
+        -- this client actually has. See the note above Corner.ArtReport.
+        if NS.Corner and NS.Corner.ArtReport then NS.Corner.ArtReport() end
+
+    elseif cmd == "more" then
+        NS.Print("|cff66ff66the rest.|r Most of this is on the options page (|cffffff00/eu|r).")
+        print("  |cffffff00/eu toggle|r          the whole addon, on or off")
+        print("  |cffffff00/eu cue|r             the cue: why isn't it firing? (+ lock|unlock|reset)")
+        print("  |cffffff00/eu guesses|r <on|off> also point at nodes that might not be there")
+        print("  |cffffff00/eu seed|r <on|off>   use GatherMate2_Data's node map, if installed")
+        print("  |cffffff00/eu softtarget|r <on|off>  the setting the cue needs to confirm a node")
+        print("  |cffffff00/eu near|r            what the cue can see right now, and why")
+        print("  |cffffff00/eu vignettes|r       what the game is showing us, and what we make of it")
         print("  |cffffff00/eu mode|r <m>        cue | radar | both")
-        print("  |cffffff00/eu lock|r/|cffffff00unlock|r    move things around")
-        print("  |cffffff00/eu reset|r           put them back")
         print("  |cffffff00/eu priority|r <type> low/normal/high")
         print("  |cffffff00/eu mark|r <type>     drop a test node here")
         print("  |cffffff00/eu clear|r           forget this map")
-        print("  |cffffff00/eu vignettes|r       what can I see, and what do I think it is")
-        print("  |cffffff00/eu hud|r <on|off|px>  your minimap's blips, in the middle of the screen")
-        print("  |cffffff00/eu guesses|r <on|off> also point at nodes that might not be there")
-        print("  |cffffff00/eu status|r          why isn't it firing?")
-        print("  |cffffff00/eu near|r            list everything the cue can currently see, and why")
-        print("  |cffffff00/eu seed|r <on|off>   use GatherMate2_Data's node map, if installed")
         print("  |cffffff00/eu clearknown|r      reset the discovered-node list")
         print("  |cffffff00/eu debug|r           narrate everything")
+        NS.Print("|cff888888When the HUD looks wrong:|r |cffffff00/eu mask|r, |cffffff00/eu sweep|r, "
+            .. "|cffffff00/eu track|r, |cffffff00/eu alpha|r |cff888888-- see /eu status first.|r")
+
+    else
+        -- EIGHT LINES. This addon is the HUD, so this is the HUD -- and the word
+        -- "hud" isn't in any of them, because every one of them is about it.
+        NS.Print("|cff66ff66Eyes Up.|r Your minimap's blips, in the middle of your screen.")
+        print("  |cffffff00/eu|r              open the options")
+        print("  |cffffff00/eu on|r / |cffffff00off|r      the HUD")
+        print("  |cffffff00/eu size|r <px>     how big the circle is")
+        print("  |cffffff00/eu move|r          unlock and drag it; right-click to lock")
+        print("  |cffffff00/eu lock|r          lock it where it is")
+        print("  |cffffff00/eu centre|r        put it back in the middle")
+        print("  |cffffff00/eu blips|r <0.5-3> how big the blips are (bare: what else is possible)")
+        print("  |cffffff00/eu status|r        what's on, and why there might be no blips")
+        NS.Print("|cff888888everything else -- the cue, filters, diagnostics:|r |cffffff00/eu more|r")
     end
 end

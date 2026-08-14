@@ -1,8 +1,8 @@
-## Interface: 120007
+## Interface: 120007, 120100
 ## Title: Eyes Up
 ## Notes: Watch the world, not the minimap. A quiet cue when something worth stopping for is near.
 ## Author: KTM (abitofmoss)
-## Version: 1.2.6
+## Version: 1.3.0
 ## SavedVariablesPerCharacter: EyesUpDB
 ## SavedVariables: EyesUpAccountDB
 ## IconTexture: Interface\AddOns\EyesUp\textures\logo-icon
@@ -57,9 +57,13 @@ Core.lua
 # parser. List it here and the UI-XML parser grabs it instead, doesn't understand
 # <Binding>, and spits "Unrecognized XML" warnings. See Escape > Keybindings.
 
-# --- Bumping for 12.1 ----------------------------------------------------------
-# Change Interface to 120100 when the patch lands. Several at once is fine:
-#   ## Interface: 120007, 120100
+# --- Interface versions ---------------------------------------------------------
+# 12.1 (120100) is live, so it's declared. 120007 stays alongside it for anyone who
+# hasn't taken the patch yet -- listing several is supported and costs nothing.
+#
+# Declaring only the older one doesn't stop the addon loading, it just flags it Out
+# Of Date in the AddOns list, which reads as abandoned. Check what the maintained
+# addons on your own machine declare; that's the fastest way to find the number.
 # -------------------------------------------------------------------------------
 
 # --- No libraries ---------------------------------------------------------------

@@ -618,7 +618,16 @@ local function buildHudPage()
     -- Two columns: what the HUD DOES (left), and what it TRACKS plus its dials
     -- (right). Every knob lives here now -- nothing hides behind a slash command.
 
-    -- ---- left column: behaviour, each with a line of why ----
+    -- ---- left column: the switches ----
+    --
+    -- SHORT LABELS, ALMOST NO PROSE. This page used to explain itself: every tickbox
+    -- carried two or three lines on why the setting exists and how it works
+    -- underneath. All of it was true and none of it was wanted -- a settings page is
+    -- read while somebody is looking for one switch, not studied. The reasoning lives
+    -- in the source and in the README, where it belongs.
+    --
+    -- A note survives only where the CONSEQUENCE would surprise you and the label
+    -- can't carry it. Two of them do. Not one is about how anything works.
     local L = CreateFrame("Frame", nil, content)
     L:SetPoint("TOPLEFT", 16, -60)
     L:SetWidth(300)
@@ -639,59 +648,75 @@ local function buildHudPage()
         ly = ly - (gap or 30)
     end
 
-    placeL(makeCheck(L, "Blips in the middle of my screen",
+    local function headerL(text)
+        local fs = L:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("TOPLEFT", L, "TOPLEFT", 0, ly)
+        fs:SetText(text)
+        ly = ly - 18
+    end
+
+    headerL("The HUD")
+    placeL(makeCheck(L, "Show the heads-up display",
         function() return NS.db.hudEnabled end,
         function(v) NS.Hud.SetEnabled(v) end))
-    noteL("The game's own tracking blips, live and exact, where you're looking. "
-        .. "Costs the corner minimap while it's up (a map goes there instead).", 44)
-
-    placeL(makeCheck(L, "Leave the minimap alone if another addon runs it",
-        function() return NS.db.hudRespectOtherAddons end,
-        function(v) NS.db.hudRespectOtherAddons = v end))
-    noteL("ElvUI, EllesmereUI, SexyMap and the like style the same minimap the HUD "
-        .. "moves, so switching it on empties their corner. With this ticked, Eyes Up "
-        .. "asks once and stands down instead of taking it unasked.", 44)
-
     placeL(makeCheck(L, "Rotate to my facing", function() return NS.db.hudRotate end,
         function(v) NS.db.hudRotate = v; NS.Hud.ApplyLook() end))
-    noteL("Up becomes the way you're facing, so a blip above centre is straight "
-        .. "ahead -- no compass to read in your head.", 34)
+    placeL(makeCheck(L, "Blip tooltips on hover",
+        function() return NS.db.hudTooltips end,
+        function(v) NS.db.hudTooltips = v; NS.Hud.ApplyLook() end))
+    noteL("The HUD catches your mouse while this is on.", 26)
 
-    placeL(makeCheck(L, "Step aside in cities", function() return NS.db.hudHideInCity end,
+    ly = ly - 6
+    headerL("Step aside")
+    -- These two headers are the only labels on the page that name a THING rather
+    -- than describe one, so each gets a line saying what it is. One line, and about
+    -- what you'd see -- not a third go at explaining the addon.
+    noteL("When the HUD should drop out of the way and give your minimap back.", 22)
+    placeL(makeCheck(L, "In cities and inns", function() return NS.db.hudHideInCity end,
         function(v) NS.db.hudHideInCity = v; NS.Hud.Refresh() end))
-    noteL("Cities and inns are full of mailboxes and quest markers the game won't "
-        .. "let us hide -- and you're not gathering there anyway. So the HUD folds "
-        .. "away while you're resting and comes back when you ride out.", 54)
-
-    placeL(makeCheck(L, "Step aside in dungeons & raids",
+    placeL(makeCheck(L, "In dungeons and raids",
         function() return NS.db.hudHideInDungeons end,
         function(v) NS.db.hudHideInDungeons = v; NS.Hud.Refresh() end))
-    noteL("Folds away in dungeons and raids, so you're not chasing flowers mid-pull. "
-        .. "Delves and ritual sites keep the HUD.", 34)
+    placeL(makeCheck(L, "While I'm fighting",
+        function() return NS.db.hudHideInCombat end,
+        function(v)
+            NS.db.hudHideInCombat = v
+            -- Ticking it mid-fight should mean now, not next fight.
+            if NS.Hud.SetCombatHidden then
+                NS.Hud.SetCombatHidden(v and InCombatLockdown and InCombatLockdown() and true or false)
+            end
+        end))
 
-    placeL(makeCheck(L, "Map in the corner", function() return NS.db.cornerMap end,
+    ly = ly - 6
+    headerL("The corner")
+    noteL("The spot your minimap used to sit in, now the blips have it.", 22)
+    placeL(makeCheck(L, "Show a map in the corner", function() return NS.db.cornerMap end,
         function(v)
             NS.db.cornerMap = v
             if NS.Hud.IsActive() then
                 if v then NS.Corner.Enable() else NS.Corner.Disable() end
             end
         end))
-    noteL("Puts a real map -- roads, your position -- where the minimap used to be, "
-        .. "since the blips have taken its old spot.", 40)
+    placeL(makeCheck(L, "Round it off",
+        function() return (NS.db.cornerShape or "circle") ~= "square" end,
+        function(v)
+            NS.db.cornerShape = v and "circle" or "square"
+            if NS.Corner then NS.Corner.ApplyShape() end
+        end))
+    -- "Frame it like the minimap" lives in the right column instead, next to the
+    -- slider that sizes it. A tickbox and the dial it governs, three inches apart in
+    -- different columns, is how you get someone turning the frame off because they
+    -- couldn't find how to shrink it.
 
-    placeL(makeCheck(L, "Blip tooltips on hover",
-        function() return NS.db.hudTooltips end,
-        function(v) NS.db.hudTooltips = v; NS.Hud.ApplyLook() end))
-    noteL("Hover a blip to read its name, like the old corner minimap. The catch: the "
-        .. "HUD then hogs the mouse over its whole circle, so you can't click the "
-        .. "world through it.", 44)
-
+    ly = ly - 6
+    headerL("Settings")
     placeL(makeCheck(L, "Share settings across all my characters",
         function() return NS.SettingsAreShared and NS.SettingsAreShared() end,
         function(v) if NS.SetSettingsShared then NS.SetSettingsShared(v) end end))
-    noteL("On: all your characters share one set of settings and one pile of "
-        .. "gathered nodes. Off: each keeps its own. Flipping this copies what "
-        .. "you've got across first -- nothing's lost -- then reloads.", 48)
+    noteL("Reloads your interface. Nothing is lost.", 26)
+    placeL(makeCheck(L, "Leave the minimap alone if another addon runs it",
+        function() return NS.db.hudRespectOtherAddons end,
+        function(v) NS.db.hudRespectOtherAddons = v end))
 
     -- ---- right column: what to track, and the dials ----
     local R = CreateFrame("Frame", nil, content)
@@ -720,33 +745,99 @@ local function buildHudPage()
         ry = ry - 18
     end
 
-    headerR("Size & feel")
-    placeR(makeSlider(R, "HUD size (px)", 150, 600, 10,
+    headerR("Size & place")
+    placeR(makeSlider(R, "HUD size", 150, 600, 10,
         function() return NS.db.hudSize end,
-        function(v) NS.db.hudSize = v; NS.Hud.ApplyLook() end, "%.0f"), 44)
-    placeR(makeSlider(R, "Zoom (0 = widest, furthest)", 0, 6, 1,
+        function(v) NS.db.hudSize = v; NS.Hud.ApplyLook() end, "%.0f px"), 44)
+    -- Zoom IS range on a minimap; 0 is the widest view and the furthest sight, which
+    -- is why the label leads with the yards rather than the zoom level.
+    placeR(makeSlider(R, "Zoom in (0 sees furthest)", 0, 6, 1,
         function() return NS.db.hudZoom end,
         function(v) NS.db.hudZoom = v; NS.Hud.ApplyLook() end, "%.0f"), 44)
-    -- The MAP's opacity, not the blips'. It used to be the other way round -- the
-    -- mask deleted the terrain and this faded the HUD -- until 12.1 made the mask
-    -- gate the blips. Now this is what hides the map, and it doesn't reach the
-    -- blips at all. Bottom of the range is 0.01, not 0: see the note in Constants.
-    placeR(makeSlider(R, "Map opacity (0.01 = blips only)", 0.01, 1, 0.01,
-        function() return NS.db.hudAlpha end,
-        function(v) NS.db.hudAlpha = v; NS.Hud.ApplyLook() end, "%.2f"), 44)
-    placeR(makeSlider(R, "Range ring opacity", 0, 1, 0.05,
-        function() return NS.db.hudRingAlpha end,
-        function(v) NS.db.hudRingAlpha = v; NS.Hud.ApplyLook() end), 44)
-    placeR(makeSlider(R, "Corner map zoom", 0.2, 1, 0.05,
+
+    local moveBtn = CreateFrame("Button", nil, R, "UIPanelButtonTemplate")
+    moveBtn:SetSize(130, 22)
+    moveBtn:SetScript("OnClick", function()
+        NS.Hud.ToggleLocked()
+        Options.Refresh()
+    end)
+    placeR(moveBtn, 26)
+
+    -- Always live, HUD up or down. It writes the stored position and nothing else;
+    -- placeMinimap only ever runs while the HUD is up, so with the HUD down this
+    -- tidies where it'll come back to and never touches the corner minimap.
+    local centreBtn = CreateFrame("Button", nil, R, "UIPanelButtonTemplate")
+    centreBtn:SetSize(140, 22)
+    centreBtn:SetPoint("LEFT", moveBtn, "RIGHT", 8, 0)
+    centreBtn:SetText("Snap back to centre")
+    centreBtn:SetScript("OnClick", function()
+        NS.Hud.ResetPosition()
+        Options.Refresh()
+    end)
+
+    local posText = R:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    posText:SetPoint("TOPLEFT", R, "TOPLEFT", 6, ry)
+    posText:SetWidth(284)
+    posText:SetJustifyH("LEFT")
+    ry = ry - 26
+
+    -- The button is also the state, so there's nothing to keep in sync -- same
+    -- argument as makePriority above.
+    moveBtn.Refresh = function()
+        local locked = NS.Hud.IsLocked()
+        moveBtn:SetText(locked and "Unlock & drag" or "Lock it here")
+        posText:SetFormattedText(locked and "%d, %d from the middle"
+            or "|cffffcc00Drag the circle, then lock it.|r  (%d, %d)",
+            NS.db.hudX or 0, NS.db.hudY or 0)
+    end
+    controls[#controls + 1] = moveBtn
+
+    -- ---- the blips ----------------------------------------------------------
+    ry = ry - 10
+    headerR("The blips")
+
+    -- ONE DIAL, because one of them works.
+    --
+    -- The disc-behind, its colour, the tint and its colour were all here and are all
+    -- gone. So are Map opacity and Range ring, which work fine and are simply not
+    -- things anyone needs: the map wants to be invisible (that's the addon) and the
+    -- ring is off. Every one of them is still reachable from a slash command for
+    -- diagnosis -- the same place the masks and the texture sweep live -- because
+    -- "useful when something is broken" is not the same as "belongs on this page".
+    placeR(makeSlider(R, "Blip size", 0.5, 3, 0.1,
+        function() return NS.db.hudBlipScale or 1 end,
+        function(v) NS.Hud.SetBlipScale(v) end, "%.1fx"), 44)
+
+    ry = ry - 10
+    headerR("The corner map")
+    placeR(makeSlider(R, "Zoom", 0.2, 1, 0.05,
         function() return NS.db.cornerZoom end,
         function(v) NS.db.cornerZoom = v; if NS.Corner then NS.Corner.ApplyLook() end end), 44)
+    -- Floored at 0.1, not 0 -- an invisible map reads as a broken addon, and there's
+    -- already a tickbox for "no corner map at all".
+    placeR(makeSlider(R, "Opacity", 0.1, 1, 0.05,
+        function() return NS.db.cornerAlpha or 1 end,
+        function(v) NS.db.cornerAlpha = v; if NS.Corner then NS.Corner.ApplyLook() end end), 44)
+    placeR(makeSlider(R, "Map size inside the frame", 0.6, 1, 0.01,
+        function() return NS.db.cornerMapScale or 1 end,
+        function(v) NS.db.cornerMapScale = v; if NS.Corner then NS.Corner.ApplyShape(); NS.Corner.ApplyLook() end end,
+        "%.2f"), 44)
 
-    placeR(makeCheck(R, "Round off the corner map",
-        function() return (NS.db.cornerShape or "circle") ~= "square" end,
+    placeR(makeCheck(R, "Frame it like the minimap",
+        function() return NS.db.cornerBorder ~= false end,
         function(v)
-            NS.db.cornerShape = v and "circle" or "square"
+            NS.db.cornerBorder = v
             if NS.Corner then NS.Corner.ApplyShape() end
         end))
+    -- Starts wherever the art itself says, so the slider's handle is where the frame
+    -- actually is rather than at some number we picked. See Corner.BorderScale.
+    placeR(makeSlider(R, "Frame size", 1, 1.6, 0.01,
+        function()
+            return NS.db.cornerBorderScale
+                or (NS.Corner and NS.Corner.BorderScale and NS.Corner.BorderScale()) or 1.09
+        end,
+        function(v) NS.db.cornerBorderScale = v; if NS.Corner then NS.Corner.ApplyShape() end end,
+        "%.2f"), 44)
 
     -- GONE: "Soft edge (fade at the rim)", which flipped hudMask between "vignette"
     -- and "clear". Neither position works any more. The mask is a GATE on 12.1 --
@@ -785,9 +876,7 @@ local function buildHudPage()
     mnote:SetPoint("TOPLEFT", 22, -(tTop + 44))
     mnote:SetWidth(600)
     mnote:SetJustifyH("LEFT")
-    mnote:SetText("While the HUD is up, these win over your minimap tracking -- ticked "
-        .. "shows, unticked hides, even the mailboxes and quest markers. Everything but "
-        .. "gathering starts off.")
+    mnote:SetText("Ticked shows, unticked hides, while the HUD is up.")
 
     local trackList = CreateFrame("Frame", nil, content)
     trackList:SetPoint("TOPLEFT", 16, -(tTop + 68))
@@ -863,11 +952,11 @@ local function buildCuePage()
     gnote:SetPoint("TOPLEFT", L, "TOPLEFT", 6, y)
     gnote:SetWidth(210)
     gnote:SetJustifyH("LEFT")
-    gnote:SetText("Off: only nodes that are really there. Never wrong, "
-                .. "but only reaches ~15-25 yd.\n"
-                .. "On: also points at places a node has BEEN, out to your full "
-                .. "range. Most of those won't be there. They draw faint and "
-                .. "never make a sound.")
+    -- The one setting on either page where the short version would mislead: "show
+    -- guesses" sounds like more of a good thing, and it is mostly wrong on purpose.
+    -- Two lines, both about what you'll SEE rather than how any of it works.
+    gnote:SetText("Off: only nodes that are really there, within ~15-25 yd.\n"
+                .. "On: also places a node has been before. Most won't be there.")
     y = y - 62
 
     y = y - 4
